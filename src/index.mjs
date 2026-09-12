@@ -19,6 +19,11 @@
  *      有効期限内、aud が FIREBASE_PROJECT_IDS のどれか、iss がその企画）
  *   3. 模型が ALLOWED_MODELS にある
  *   4. 人（sub）ごとの回数が上限内
+ *
+ * ■ 鍵
+ *   GEMINI_API_KEY（1つ）と GEMINI_API_KEYS（, 区切りで何個でも）を合わせて使う。
+ *   呼ぶたびに次の鍵から始め（回し持ち）、その鍵が 429（上限）や 403（止められた）
+ *   なら次の鍵で同じ体をもう一度送る。全部だめなら最後の返事をそのまま返す。
  */
 
 const 公開鍵の場所 = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -26,6 +31,8 @@ const 上流 = 'https://generativelanguage.googleapis.com';
 
 /** 公開鍵の控え（Worker の生きている間だけ） */
 let 鍵の控え = { 鍵たち: null, 期限: 0 };
+/** 次に使う Gemini の鍵の番号（Worker の生きている間だけ。回し持ちの起点） */
+let 次の鍵 = 0;
 
 export default {
   async fetch(request, env, ctx) {
@@ -39,7 +46,7 @@ export default {
 
     const url = new URL(request.url);
     if (url.pathname === '/' || url.pathname === '/health') {
-      return 答える({ ok: true, 何: 'kyudo-gemini-chukei' }, 200, 許す出どころ);
+      return 答える({ ok: true, 何: 'kyudo-gemini-chukei', 鍵の数: 鍵の一覧(env).length }, 200, 許す出どころ);
     }
 
     // 1. 出どころ
@@ -69,31 +76,65 @@ export default {
       }
     }
 
-    // 上流へ。鍵はここで付ける。体はそのまま流す
+    // 上流へ。鍵はここで付ける。体は読み解かないが、鍵を替えて送り直せるよう一度手元に置く
+    const 鍵たち = 鍵の一覧(env);
+    if (!鍵たち.length) return 答える({ error: '中継に鍵が置かれていません' }, 500, 許す出どころ);
     const 上流のURL = 上流 + 道 + (url.search || '');
-    const 頭 = new Headers();
-    頭.set('x-goog-api-key', env.GEMINI_API_KEY);
     const 種 = request.headers.get('Content-Type');
-    if (種) 頭.set('Content-Type', 種);
     const 依頼者 = request.headers.get('x-goog-api-client');
-    if (依頼者) 頭.set('x-goog-api-client', 依頼者);
-    let 返事;
-    try {
-      返事 = await fetch(上流のURL, {
-        method: request.method,
-        headers: 頭,
-        body: request.method === 'GET' || request.method === 'HEAD' ? undefined : request.body,
-      });
-    } catch (e) {
-      return 答える({ error: 'Gemini につながりませんでした', 訳: String((e && e.message) || e) }, 502, 許す出どころ);
+    const 体 = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+    const 起点 = 次の鍵++ % 鍵たち.length;
+    let 返事 = null;
+    let 使った = -1;
+    for (let i = 0; i < 鍵たち.length; i++) {
+      const 番 = (起点 + i) % 鍵たち.length;
+      const 頭 = new Headers();
+      頭.set('x-goog-api-key', 鍵たち[番]);
+      if (種) 頭.set('Content-Type', 種);
+      if (依頼者) 頭.set('x-goog-api-client', 依頼者);
+      try {
+        返事 = await fetch(上流のURL, { method: request.method, headers: 頭, body: 体 });
+      } catch (e) {
+        return 答える({ error: 'Gemini につながりませんでした', 訳: String((e && e.message) || e) }, 502, 許す出どころ);
+      }
+      使った = 番;
+      if (!(await 次の鍵で送り直すか(返事))) break;
+      // 使わない返事の体は捨てる（つなぎっぱなしにしない）
+      if (返事.body) await 返事.body.cancel().catch(() => {});
     }
     // そのまま返す（流し読み（SSE）もこのままで通る）
     const 出す頭 = new Headers(返事.headers);
     for (const [k, v] of Object.entries(CORSの頭(許す出どころ))) 出す頭.set(k, v);
     出す頭.delete('content-security-policy');
+    出す頭.set('x-chukei-kagi', `${使った + 1}/${鍵たち.length}`);
     return new Response(返事.body, { status: 返事.status, headers: 出す頭 });
   },
 };
+
+/** 使える鍵の並び。GEMINI_API_KEY（1つ）と GEMINI_API_KEYS（, 区切り）を合わせ、重複は落とす */
+function 鍵の一覧(env) {
+  const 全部 = [env.GEMINI_API_KEY, ...String(env.GEMINI_API_KEYS || '').split(',')]
+    .map((s) => (s || '').trim())
+    .filter(Boolean);
+  return [...new Set(全部)];
+}
+
+/**
+ * その鍵ではだめで、別の鍵なら通るかもしれない返事か。
+ *   429 … この鍵の上限（分・日）
+ *   403 … この鍵が止められている／権限が無い
+ *   400 で「API key」と言われた … この鍵が無効
+ * 503（模型が混んでいる）や普通の 400（体がおかしい）は鍵を替えても同じなので送り直さない
+ */
+async function 次の鍵で送り直すか(返事) {
+  if (返事.status === 429 || 返事.status === 403 || 返事.status === 401) return true;
+  if (返事.status === 400) {
+    // 体は読むと無くなるので、写しから読む
+    const 文 = await 返事.clone().text().catch(() => '');
+    return /API key|API_KEY_INVALID/i.test(文);
+  }
+  return false;
+}
 
 /** 許された出どころなら、その文字列を返す（無ければ null） */
 function 出どころを選ぶ(出どころ, 一覧) {
