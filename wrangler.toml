@@ -1,0 +1,26 @@
+# 弓道部的中ノートの Gemini 中継（Cloudflare Workers）。
+#
+#   npx wrangler deploy                    … 配る
+#   npx wrangler secret put GEMINI_API_KEY … 鍵を置く（一度だけ。束には入れない）
+#   npx wrangler tail                      … 動いている様子を見る
+#
+# アプリは Firebase のログインの証（ID トークン）を Authorization に付けて
+# ここを呼ぶ。中継が証を確かめてから、鍵を付けて Gemini を呼ぶ。
+name = "kyudo-gemini-chukei"
+main = "src/index.mjs"
+compatibility_date = "2026-09-01"
+workers_dev = true
+
+[vars]
+# 証を受け付ける Firebase の企画（本番と検証環境）
+FIREBASE_PROJECT_IDS = "kyudoscoremanager,kyudoscoremanager-stg"
+# 呼んでよい出どころ（CORS）。検証は手元の配り口も許す
+ALLOWED_ORIGINS = "https://kyudoscoremanager.web.app,https://kyudoscoremanager.firebaseapp.com,https://kyudoscoremanager-stg.web.app,https://kyudoscoremanager-stg.firebaseapp.com,http://localhost:8090,http://localhost:8091,http://127.0.0.1:8090,http://127.0.0.1:8091,http://localhost:8081"
+# 呼んでよい模型
+ALLOWED_MODELS = "gemini-3.6-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash"
+
+# 人ごとの回数の上限（1分あたり）。鍵を抜かれなくても、1人が回し続けるのを止める
+[[ratelimits]]
+name = "RATE"
+namespace_id = "1001"
+simple = { limit = 40, period = 60 }
