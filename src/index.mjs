@@ -82,7 +82,18 @@ export default {
     const 上流のURL = 上流 + 道 + (url.search || '');
     const 種 = request.headers.get('Content-Type');
     const 依頼者 = request.headers.get('x-goog-api-client');
-    const 体 = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+    let 体 = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
+    // 道具（function calling）の返事の role。@google/generative-ai 0.24 は functionResponse を
+    // role:"function" で送るが、いまの Gemini API（3.6-flash）は 'function' を受けず
+    // 「Role 'function' is not supported」の 400 を返す（2026-09-14、AI チャットで実際に）。
+    // 正しくは role:"user"。アプリ側の SDK を差し替えずに済むよう、ここで書き換える
+    if (体 && 体.byteLength < 4 * 1024 * 1024 && /json/i.test(request.headers.get('Content-Type') || '')) {
+      const 文 = new TextDecoder().decode(体);
+      if (文.includes('"function"')) {
+        const 直した = 文.replace(/"role"\s*:\s*"function"/g, '"role":"user"');
+        if (直した !== 文) 体 = new TextEncoder().encode(直した);
+      }
+    }
     const 起点 = 次の鍵++ % 鍵たち.length;
     let 返事 = null;
     let 使った = -1;
