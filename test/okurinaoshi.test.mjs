@@ -20,10 +20,11 @@ test('429・403・401 と無効な鍵の 400 は次の鍵で送り直す', async
   assert.strictEqual(await 送り直す訳(返事(400, '{"error":{"message":"API_KEY_INVALID"}}')), '鍵');
 });
 
-test('503（混んでいる）は待って送り直す。待ちは 2 回ぶん', async () => {
+test('503（混んでいる）は待って送り直す。待ちは 3 回ぶん、合わせて 15 秒以内', async () => {
   assert.strictEqual(await 送り直す訳(返事(503, 'This model is currently experiencing high demand.')), '混み');
-  assert.strictEqual(混みの待ち.length, 2);
-  assert.ok(混みの待ち.every((ms) => ms >= 1000 && ms <= 5000), '待ちは 1〜5 秒');
+  assert.strictEqual(混みの待ち.length, 3);
+  assert.ok(混みの待ち.every((ms, i) => ms >= 1000 && (i === 0 || ms > 混みの待ち[i - 1])), '待ちは 1 秒以上で、だんだん長く');
+  assert.ok(混みの待ち.reduce((a, b) => a + b, 0) <= 15000, '合わせて 15 秒以内（写真の読み取りの待ちに足す）');
 });
 
 test('通った返事・体がおかしい 400・404 は送り直さない', async () => {
