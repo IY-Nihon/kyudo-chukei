@@ -24,6 +24,12 @@
  *   GEMINI_API_KEY（1つ）と GEMINI_API_KEYS（, 区切りで何個でも）を合わせて使う。
  *   呼ぶたびに次の鍵から始め（回し持ち）、その鍵が 429（上限）や 403（止められた）
  *   なら次の鍵で同じ体をもう一度送る。全部だめなら最後の返事をそのまま返す。
+ *
+ * ■ 混んでいるとき
+ *   503（模型が混んでいる。"This model is currently experiencing high demand"）は
+ *   鍵のせいではないが、山は短い。1.5 秒・3 秒待って 2 回まで送り直す（鍵も次のものに
+ *   替える。企画ごとに枠が違うことがある）。それでもだめなら 503 をそのまま返す。
+ *   写真の読み取りで 2 回続けて 503 になり、使う人が「解析に失敗」しか見られなかった（2026-09-20）
  */
 
 const 公開鍵の場所 = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -33,6 +39,8 @@ const 上流 = 'https://generativelanguage.googleapis.com';
 let 鍵の控え = { 鍵たち: null, 期限: 0 };
 /** 次に使う Gemini の鍵の番号（Worker の生きている間だけ。回し持ちの起点） */
 let 次の鍵 = 0;
+/** 503（混んでいる）のとき、送り直す前に待つ長さ（ms）。並びの数だけ送り直す */
+export const 混みの待ち = [1500, 3000];
 
 export default {
   async fetch(request, env, ctx) {
@@ -95,11 +103,12 @@ export default {
       const 直した = 道具の返事のroleを直す(new TextDecoder().decode(体));
       if (直した !== null) 体 = new TextEncoder().encode(直した);
     }
-    const 起点 = 次の鍵++ % 鍵たち.length;
+    let 番 = 次の鍵++ % 鍵たち.length;
     let 返事 = null;
     let 使った = -1;
-    for (let i = 0; i < 鍵たち.length; i++) {
-      const 番 = (起点 + i) % 鍵たち.length;
+    let 鍵を替えた = 0;
+    let 混んだ = 0;
+    for (;;) {
       const 頭 = new Headers();
       頭.set('x-goog-api-key', 鍵たち[番]);
       if (種) 頭.set('Content-Type', 種);
@@ -110,9 +119,13 @@ export default {
         return 答える({ error: 'Gemini につながりませんでした', 訳: String((e && e.message) || e) }, 502, 許す出どころ);
       }
       使った = 番;
-      if (!(await 次の鍵で送り直すか(返事))) break;
+      const 訳 = await 送り直す訳(返事);
+      if (訳 === '鍵' && 鍵を替えた < 鍵たち.length - 1) 鍵を替えた++;
+      else if (訳 === '混み' && 混んだ < 混みの待ち.length) await new Promise((r) => setTimeout(r, 混みの待ち[混んだ++]));
+      else break;
       // 使わない返事の体は捨てる（つなぎっぱなしにしない）
       if (返事.body) await 返事.body.cancel().catch(() => {});
+      番 = (番 + 1) % 鍵たち.length;
     }
     // そのまま返す（流し読み（SSE）もこのままで通る）
     const 出す頭 = new Headers(返事.headers);
@@ -120,7 +133,7 @@ export default {
     出す頭.delete('content-security-policy');
     // どの鍵で答えたかは返事に載せない（載せると、鍵の数と回し方が外から読める）。
     // 運用者は wrangler tail で見る
-    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${返事.status}`);
+    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''}`);
     return new Response(返事.body, { status: 返事.status, headers: 出す頭 });
   },
 };
@@ -159,20 +172,25 @@ function 鍵の一覧(env) {
 }
 
 /**
- * その鍵ではだめで、別の鍵なら通るかもしれない返事か。
- *   429 … この鍵の上限（分・日）
- *   403 … この鍵が止められている／権限が無い
- *   400 で「API key」と言われた … この鍵が無効
- * 503（模型が混んでいる）や普通の 400（体がおかしい）は鍵を替えても同じなので送り直さない
+ * 送り直すべき返事なら、その訳を返す。送り直さないなら null。
+ *   '鍵' … その鍵ではだめで、別の鍵なら通るかもしれない
+ *           429 … この鍵の上限（分・日）
+ *           403 … この鍵が止められている／権限が無い
+ *           400 で「API key」と言われた … この鍵が無効
+ *   '混み' … 503（模型が混んでいる）。少し待てば通ることが多い
+ * 普通の 400（体がおかしい）や 404 は何度送っても同じなので送り直さない
+ * @param {{status:number, clone:() => {text:() => Promise<string>}}} 返事
+ * @returns {Promise<'鍵'|'混み'|null>}
  */
-async function 次の鍵で送り直すか(返事) {
-  if (返事.status === 429 || 返事.status === 403 || 返事.status === 401) return true;
+export async function 送り直す訳(返事) {
+  if (返事.status === 429 || 返事.status === 403 || 返事.status === 401) return '鍵';
+  if (返事.status === 503) return '混み';
   if (返事.status === 400) {
     // 体は読むと無くなるので、写しから読む
     const 文 = await 返事.clone().text().catch(() => '');
-    return /API key|API_KEY_INVALID/i.test(文);
+    return /API key|API_KEY_INVALID/i.test(文) ? '鍵' : null;
   }
-  return false;
+  return null;
 }
 
 /** 許された出どころなら、その文字列を返す（無ければ null） */
