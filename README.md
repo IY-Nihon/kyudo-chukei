@@ -12,6 +12,8 @@ Cloudflare Workers で動く小さな中継。アプリ（Expo Web）に Gemini 
   始め（回し持ち）、429／403／無効な鍵なら次の鍵で同じ体を送り直す。どの鍵で答えたかは
   `npx wrangler tail` の「鍵 3/7 200」で見る（返事や `/health` には載せない。載せると鍵の数と
   回し方が外から読め、上限まで使い切るのに何回要るかの見当を与える。2026-09-19 に外した）
+- 503（模型が混んでいる）は鍵のせいではないので、1.5 秒・3 秒待って 2 回まで送り直す（鍵も次に替える）。
+  それでもだめなら 503 をそのまま返し、アプリが「混み合っています」と出す。tail には「鍵 3/7 200 混み1」
 
 ## 手順
 
@@ -21,7 +23,7 @@ npx wrangler deploy                      # 配る
 npx wrangler secret put GEMINI_API_KEY   # 鍵を置く／替える（一度だけ。束には入れない）
 npx wrangler secret put GEMINI_API_KEYS  # 追加の鍵（, 区切り）。ファイルから流すなら  … | npx wrangler secret put GEMINI_API_KEYS
 npx wrangler tail                        # 動いている様子を見る
-node --test test/*.mjs                   # 手元の検査（role の直し方）
+node --test test/*.mjs                   # 手元の検査（role の直し方・送り直す訳）
 ```
 
 鍵を替えるときは Google AI Studio で新しい鍵を作り、`secret put` で置き換えてから古い鍵を消す。
