@@ -46,7 +46,9 @@ export default {
 
     const url = new URL(request.url);
     if (url.pathname === '/' || url.pathname === '/health') {
-      return 答える({ ok: true, 何: 'kyudo-gemini-chukei', 鍵の数: 鍵の一覧(env).length }, 200, 許す出どころ);
+      // 鍵の数は出さない。誰でも呼べる道なので、上限まで使い切るのに何回要るかが読めてしまう。
+      // 置いた数は wrangler tail の「鍵 3/7」で確かめる
+      return 答える({ ok: true, 何: 'kyudo-gemini-chukei' }, 200, 許す出どころ);
     }
 
     // 1. 出どころ
@@ -86,13 +88,12 @@ export default {
     // 道具（function calling）の返事の role。@google/generative-ai 0.24 は functionResponse を
     // role:"function" で送るが、いまの Gemini API（3.6-flash）は 'function' を受けず
     // 「Role 'function' is not supported」の 400 を返す（2026-09-14、AI チャットで実際に）。
-    // 正しくは role:"user"。アプリ側の SDK を差し替えずに済むよう、ここで書き換える
+    // 正しくは role:"user"。アプリは 2026-09-14 から自分で role:"user" を積むので、いまは
+    // 古い束（更新前の PWA）のためだけに残している。文字列の置換ではなく JSON として読み、
+    // contents[].role だけを直す（文字列の中に同じ字があっても触らない）
     if (体 && 体.byteLength < 4 * 1024 * 1024 && /json/i.test(request.headers.get('Content-Type') || '')) {
-      const 文 = new TextDecoder().decode(体);
-      if (文.includes('"function"')) {
-        const 直した = 文.replace(/"role"\s*:\s*"function"/g, '"role":"user"');
-        if (直した !== 文) 体 = new TextEncoder().encode(直した);
-      }
+      const 直した = 道具の返事のroleを直す(new TextDecoder().decode(体));
+      if (直した !== null) 体 = new TextEncoder().encode(直した);
     }
     const 起点 = 次の鍵++ % 鍵たち.length;
     let 返事 = null;
@@ -117,10 +118,37 @@ export default {
     const 出す頭 = new Headers(返事.headers);
     for (const [k, v] of Object.entries(CORSの頭(許す出どころ))) 出す頭.set(k, v);
     出す頭.delete('content-security-policy');
-    出す頭.set('x-chukei-kagi', `${使った + 1}/${鍵たち.length}`);
+    // どの鍵で答えたかは返事に載せない（載せると、鍵の数と回し方が外から読める）。
+    // 運用者は wrangler tail で見る
+    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${返事.status}`);
     return new Response(返事.body, { status: 返事.status, headers: 出す頭 });
   },
 };
+
+/**
+ * 体（JSON）の contents[].role が "function" なら "user" に直した文を返す。
+ * 直すところが無い・JSON として読めない・形が違うときは null（体はそのまま送る）。
+ * @param {string} 文
+ * @returns {string|null}
+ */
+export function 道具の返事のroleを直す(文) {
+  if (!文.includes('"function"')) return null;
+  let 体;
+  try {
+    体 = JSON.parse(文);
+  } catch {
+    return null;
+  }
+  if (!体 || !Array.isArray(体.contents)) return null;
+  let 直した = false;
+  for (const 発言 of 体.contents) {
+    if (発言 && 発言.role === 'function') {
+      発言.role = 'user';
+      直した = true;
+    }
+  }
+  return 直した ? JSON.stringify(体) : null;
+}
 
 /** 使える鍵の並び。GEMINI_API_KEY（1つ）と GEMINI_API_KEYS（, 区切り）を合わせ、重複は落とす */
 function 鍵の一覧(env) {
