@@ -77,9 +77,11 @@ export default {
       return 答える({ error: 'ログインの証が正しくありません', 訳: String((e && e.message) || e) }, 401, 許す出どころ);
     }
 
-    // 改善のための保存（src/hozon.mjs）。回数の上限は Gemini の中継と同じものを使う
+    // 改善のための保存（src/hozon.mjs）。回数の上限は Gemini の中継とは別に数える。
+    // 同じ上限を使うと、写真を読むたびに保存の 1〜6 回ぶん Gemini の枠が減り、
+    // AI チャットが「呼びすぎ」で断られやすくなる（2026-09-26）
     if (url.pathname === '/hozon' || url.pathname.startsWith('/hozon/')) {
-      if (!(await 回数に収まるか(env, 本人)))
+      if (!(await 回数に収まるか(本人, env.RATE_HOZON)))
         return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
       const 結果 = await 保存を受ける(request, url, env, 本人);
       return 答える(結果.中身, 結果.状態, 許す出どころ);
@@ -90,7 +92,7 @@ export default {
     if (!道) return 答える({ error: 'この道は中継しません' }, 404, 許す出どころ);
 
     // 4. 回数
-    if (!(await 回数に収まるか(env, 本人)))
+    if (!(await 回数に収まるか(本人, env.RATE)))
       return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
 
     // 上流へ。鍵はここで付ける。体は読み解かないが、鍵を替えて送り直せるよう一度手元に置く
@@ -210,11 +212,15 @@ export async function 送り直す訳(返事) {
   return null;
 }
 
-/** 人（証の sub）ごとの回数の上限に収まるか。上限の仕組みが無ければ通す（守りが1つ減るだけ） */
-async function 回数に収まるか(env, 本人) {
-  if (!env.RATE || !本人.sub) return true;
+/**
+ * 人（証の sub）ごとの回数の上限に収まるか。上限の仕組みが無ければ通す（守りが1つ減るだけ）。
+ * 数え は使う上限（Gemini の中継は env.RATE、保存は env.RATE_HOZON）。既定で片方へ寄せない
+ * （寄せると、保存の上限を置いていないときに Gemini の枠を減らす）
+ */
+export async function 回数に収まるか(本人, 数え) {
+  if (!数え || !本人.sub) return true;
   try {
-    const { success } = await env.RATE.limit({ key: 本人.sub });
+    const { success } = await 数え.limit({ key: 本人.sub });
     return !!success;
   } catch (e) {
     return true;
