@@ -49,7 +49,7 @@ function 偽の置き場() {
       写真.set(鍵, { 体, 選び });
     },
   };
-  return { env: { KAIZEN_DB: db, KAIZEN_PHOTOS: kv }, 行たち, 写真 };
+  return { env: { KAIZEN_DB: db, KAIZEN_PHOTOS: kv, HOZON_PROJECTS: 'kyudoscoremanager,kyudoscoremanager-stg' }, 行たち, 写真 };
 }
 
 const 本人 = { sub: 'uid-1', aud: 'kyudoscoremanager-stg' };
@@ -83,7 +83,7 @@ test('形の違う依頼は断る（id・種類・JSON・大きさ）', async ()
 });
 
 test('置き場が無ければ 503（アプリは黙って捨てる）', async () => {
-  const 返り = await 保存を受ける(new Request('https://x/hozon', { method: 'POST', body: '{}' }), new URL('https://x/hozon'), {}, 本人);
+  const 返り = await 保存を受ける(new Request('https://x/hozon', { method: 'POST', body: '{}' }), new URL('https://x/hozon'), { HOZON_PROJECTS: 本人.aud }, 本人);
   assert.strictEqual(返り.状態, 503);
 });
 
@@ -97,7 +97,7 @@ test('写真は同じ人が書いた記録にだけ付く。1 年の期限を付
   assert.strictEqual(置いた.選び.expirationTtl, 保存の日数 * 86400);
   assert.strictEqual(置き場.行たち.get(id).photos, 1);
   // ほかの人の記録には付けられない
-  assert.strictEqual((await 写真を送る(置き場, `/hozon/photo/${id}/1`, 体, 'image/jpeg', { sub: 'uid-2', aud: 'x' })).状態, 404);
+  assert.strictEqual((await 写真を送る(置き場, `/hozon/photo/${id}/1`, 体, 'image/jpeg', { sub: 'uid-2', aud: 'kyudoscoremanager-stg' })).状態, 404);
   // 無い記録にも付けられない
   assert.strictEqual((await 写真を送る(置き場, '/hozon/photo/11111111-2222-4333-8444-555555555555/0', 体)).状態, 404);
   // 写真と PDF のほかは断る
@@ -118,4 +118,13 @@ test('1 年を過ぎた文字の記録を消す', async () => {
   await 文を送る(置き場, { id: '0b9f3c2a-1d4e-4f5a-8b6c-7d8e9f0a1b2d', 種類: 'チャット', 中身: {} }, 本人, 今 - 1000);
   assert.strictEqual(await 古い保存を消す(置き場.env, 今), 1);
   assert.deepStrictEqual([...置き場.行たち.keys()], ['0b9f3c2a-1d4e-4f5a-8b6c-7d8e9f0a1b2d']);
+});
+
+test('置く企画（既定は本番）でない証で来たものは、受けたと答えて置かない', async () => {
+  const 置き場 = 偽の置き場();
+  delete 置き場.env.HOZON_PROJECTS; // 既定は kyudoscoremanager だけ
+  const 返り = await 文を送る(置き場, { id, 種類: 'チャット', 中身: {} }, { sub: 'u', aud: 'kyudoscoremanager-stg' });
+  assert.strictEqual(返り.状態, 202);
+  assert.strictEqual(置き場.行たち.size, 0);
+  assert.strictEqual((await 文を送る(置き場, { id, 種類: 'チャット', 中身: {} }, { sub: 'u', aud: 'kyudoscoremanager' })).状態, 200);
 });

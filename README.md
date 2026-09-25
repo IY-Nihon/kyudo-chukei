@@ -48,6 +48,8 @@ node --test test/*.mjs                   # 手元の検査（role の直し方�
 - 写真は、同じ人（証の sub）が先に書いた記録にしか付けられない
 - 1 年を過ぎた行は毎日の定時の処理（`scheduled`）で消す。写真は KV の期限で消える
 - 置き場がつながっていなければ 503（アプリは黙って捨てる。AI 機能は止まらない）
+- 置くのは本番の企画（kyudoscoremanager）の証で来たものだけ。検証環境の e2e や試しは 202 を返して置かない
+  （無料枠を守るため）。検証環境でも置きたいときは [vars] に HOZON_PROJECTS = "kyudoscoremanager,kyudoscoremanager-stg"
 
 ### 初めて配るとき（一度だけ）
 
