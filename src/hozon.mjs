@@ -19,6 +19,8 @@
  * ■ 守り
  *   ・ログインの証と出どころは、Gemini の中継と同じ確かめを通ったあとに来る（index.mjs）
  *   ・写真は、同じ人（証の sub）が先に書いた記録の id にしか付けられない
+ *   ・置くのは HOZON_PROJECTS（既定は本番の kyudoscoremanager）の証で来たものだけ。検証環境の
+ *     e2e や試しの操作は、受けたと答えるだけで置かない（202）。無料枠（KV は 1 日 1,000 回）を守るため
  */
 
 export const 保存の種類 = ['チャット', '写真読み取り', '予定表'];
@@ -38,6 +40,8 @@ const idの形 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$
  * @returns {Promise<{状態: number, 中身: object}>}
  */
 export async function 保存を受ける(request, url, env, 本人, 今 = Date.now()) {
+  const 置く企画 = String(env.HOZON_PROJECTS || 'kyudoscoremanager').split(',').map((s) => s.trim());
+  if (!置く企画.includes(String(本人.aud || ''))) return { 状態: 202, 中身: { ok: true, 置いた: false } };
   if (!env.KAIZEN_DB) return { 状態: 503, 中身: { error: '保存の置き場がありません' } };
   const 道 = url.pathname;
 
