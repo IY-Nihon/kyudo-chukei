@@ -128,3 +128,16 @@ test('置く企画（既定は本番）でない証で来たものは、受け�
   assert.strictEqual(置き場.行たち.size, 0);
   assert.strictEqual((await 文を送る(置き場, { id, 種類: 'チャット', 中身: {} }, { sub: 'u', aud: 'kyudoscoremanager' })).状態, 200);
 });
+
+test('保存の回数は Gemini の中継とは別に数える（保存で Gemini の枠を減らさない）', async () => {
+  const { 回数に収まるか } = await import('../src/index.mjs');
+  const 数え = (通す) => ({ 呼ばれた: 0, async limit() { this.呼ばれた++; return { success: 通す }; } });
+  const env = { RATE: 数え(false), RATE_HOZON: 数え(true) };
+  assert.strictEqual(await 回数に収まるか(本人, env.RATE_HOZON), true);
+  assert.strictEqual(env.RATE.呼ばれた, 0, '保存で Gemini の枠を数えた');
+  assert.strictEqual(await 回数に収まるか(本人, env.RATE), false);
+  // 保存の上限を置いていなければ通す（Gemini の枠へ寄せない）
+  const 枠だけ = { RATE: 数え(false) };
+  assert.strictEqual(await 回数に収まるか(本人, 枠だけ.RATE_HOZON), true);
+  assert.strictEqual(枠だけ.RATE.呼ばれた, 0);
+});
