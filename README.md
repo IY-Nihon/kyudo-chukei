@@ -24,7 +24,7 @@ npx wrangler deploy                      # 配る
 npx wrangler secret put GEMINI_API_KEY   # 鍵を置く／替える（一度だけ。束には入れない）
 npx wrangler secret put GEMINI_API_KEYS  # 追加の鍵（, 区切り）。ファイルから流すなら  … | npx wrangler secret put GEMINI_API_KEYS
 npx wrangler tail                        # 動いている様子を見る
-node --test test/*.mjs                   # 手元の検査（role の直し方・送り直す訳）
+node --test test/*.mjs                   # 手元の検査（role の直し方・送り直す訳・改善のための保存）
 ```
 
 鍵を替えるときは Google AI Studio で新しい鍵を作り、`secret put` で置き換えてから古い鍵を消す。
@@ -35,3 +35,41 @@ node --test test/*.mjs                   # 手元の検査（role の直し方�
 アプリ側の `scripts/fb-rest.mjs` で検証環境の証を取り、証なし＝401、偽の証＝401、
 出どころ違い＝403、模型違い＝404、一覧と生成＝200、41 回目＝429 になることを見る
 （2026-09-13 に確認）。
+
+## アプリの改善のための保存（/hozon、2026-09-26）
+
+使う人が AI に送ったものと答え・読み取りの結果を 1 年だけ取っておく（`src/hozon.mjs`）。
+運用者が決めた（AI チャットの質問と答え・写真読み取りの結果と直しと写真・出欠の予定表）。
+プライバシーポリシー第12条に書いてある。
+
+- `POST /hozon` … `{id, 種類, 中身}`（JSON、256KB まで）を D1 の `kaizen_logs` に 1 行
+- `PUT /hozon/photo/{id}/{番}` … 写真・PDF をそのまま（5MB まで）KV に `photo/{id}/{番}`、1 年の期限付き。
+  JSON に埋めないのは、無料枠の CPU 10ms を base64 の読み解きで超えるため
+- 写真は、同じ人（証の sub）が先に書いた記録にしか付けられない
+- 1 年を過ぎた行は毎日の定時の処理（`scheduled`）で消す。写真は KV の期限で消える
+- 置き場がつながっていなければ 503（アプリは黙って捨てる。AI 機能は止まらない）
+
+### 初めて配るとき（一度だけ）
+
+```bash
+npx wrangler d1 create kyudo-kaizen            # 出た database_id を wrangler.toml へ
+npx wrangler kv namespace create KAIZEN_PHOTOS # 出た id を wrangler.toml へ
+# wrangler.toml に次を足す（番号は上で出たもの）
+#   [[d1_databases]] binding = "KAIZEN_DB", database_name = "kyudo-kaizen", database_id = "…", migrations_dir = "migrations"
+#   [[kv_namespaces]] binding = "KAIZEN_PHOTOS", id = "…"
+#   [triggers] crons = ["17 18 * * *"]   （毎日 3:17 JST）
+npx wrangler d1 migrations apply kyudo-kaizen --remote
+npx wrangler deploy
+```
+
+### 読むとき
+
+```bash
+npx wrangler d1 execute kyudo-kaizen --remote --command "SELECT kind, count(*) FROM kaizen_logs GROUP BY kind"
+npx wrangler d1 execute kyudo-kaizen --remote --command "SELECT id, created_at, group_id, content FROM kaizen_logs WHERE kind='写真読み取り' ORDER BY created_at DESC LIMIT 20"
+npx wrangler kv key get --binding KAIZEN_PHOTOS --remote "photo/{id}/0" > 写真.jpg
+```
+
+名前の入った中身なので、倉庫や他の AI には入れない。消してほしいと言われたら `uid` か `group_id` で探して消す。
+手元で試すときは、番号を仮に入れた設定で `npx wrangler d1 migrations apply kyudo-kaizen --local` と
+`npx wrangler dev --local` を使う（2026-09-26 に文字の記録・写真・無い記録への写真 404・証なし 401 を確かめた）。
