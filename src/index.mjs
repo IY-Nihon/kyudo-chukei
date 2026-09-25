@@ -10,6 +10,7 @@
  *   POST /v1beta/models/{model}:generateContent
  *   POST /v1beta/models/{model}:streamGenerateContent?alt=sse
  *   GET  /v1beta/models
+ *   POST /hozon・PUT /hozon/photo/{id}/{番} … アプリの改善のための保存（src/hozon.mjs）
  *   体はそのまま Gemini へ流す（読み解かない。写真が入っていて大きいので、
  *   Worker の CPU をほとんど使わずに済む）。
  *
@@ -33,6 +34,8 @@
  *   使う人まで届いた（2026-09-20。小さな文の依頼は同じ時刻に 200 だったので、写真の重い
  *   依頼のほうが落とされやすい）
  */
+
+import { 保存を受ける, 古い保存を消す } from './hozon.mjs';
 
 const 公開鍵の場所 = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const 上流 = 'https://generativelanguage.googleapis.com';
@@ -74,19 +77,21 @@ export default {
       return 答える({ error: 'ログインの証が正しくありません', 訳: String((e && e.message) || e) }, 401, 許す出どころ);
     }
 
+    // 改善のための保存（src/hozon.mjs）。回数の上限は Gemini の中継と同じものを使う
+    if (url.pathname === '/hozon' || url.pathname.startsWith('/hozon/')) {
+      if (!(await 回数に収まるか(env, 本人)))
+        return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
+      const 結果 = await 保存を受ける(request, url, env, 本人);
+      return 答える(結果.中身, 結果.状態, 許す出どころ);
+    }
+
     // 3. 道と模型
     const 道 = 上流の道にする(url, env.ALLOWED_MODELS.split(',').map((s) => s.trim()));
     if (!道) return 答える({ error: 'この道は中継しません' }, 404, 許す出どころ);
 
     // 4. 回数
-    if (env.RATE && 本人.sub) {
-      try {
-        const { success } = await env.RATE.limit({ key: 本人.sub });
-        if (!success) return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
-      } catch (e) {
-        // 上限の仕組みが無くても中継は続ける（守りが1つ減るだけ）
-      }
-    }
+    if (!(await 回数に収まるか(env, 本人)))
+      return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
 
     // 上流へ。鍵はここで付ける。体は読み解かないが、鍵を替えて送り直せるよう一度手元に置く
     const 鍵たち = 鍵の一覧(env);
@@ -137,6 +142,16 @@ export default {
     // 運用者は wrangler tail で見る
     console.log(`鍵 ${使った + 1}/${鍵たち.length} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''}`);
     return new Response(返事.body, { status: 返事.status, headers: 出す頭 });
+  },
+
+  // 毎日の定時の処理（wrangler.toml の [triggers]）。1 年を過ぎた改善のための保存を消す
+  async scheduled(event, env, ctx) {
+    ctx.waitUntil(
+      古い保存を消す(env).then(
+        (数) => console.log(`古い保存を ${数} 件消しました`),
+        (e) => console.error('古い保存を消せませんでした', e)
+      )
+    );
   },
 };
 
@@ -195,6 +210,17 @@ export async function 送り直す訳(返事) {
   return null;
 }
 
+/** 人（証の sub）ごとの回数の上限に収まるか。上限の仕組みが無ければ通す（守りが1つ減るだけ） */
+async function 回数に収まるか(env, 本人) {
+  if (!env.RATE || !本人.sub) return true;
+  try {
+    const { success } = await env.RATE.limit({ key: 本人.sub });
+    return !!success;
+  } catch (e) {
+    return true;
+  }
+}
+
 /** 許された出どころなら、その文字列を返す（無ければ null） */
 function 出どころを選ぶ(出どころ, 一覧) {
   if (!出どころ) return null;
@@ -206,7 +232,7 @@ function CORSの頭(出どころ) {
   if (!出どころ) return {};
   return {
     'Access-Control-Allow-Origin': 出どころ,
-    'Access-Control-Allow-Methods': 'GET, POST, OPTIONS',
+    'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
     'Access-Control-Allow-Headers': 'Authorization, Content-Type, x-goog-api-key, x-goog-api-client',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
