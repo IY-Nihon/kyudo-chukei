@@ -27,7 +27,7 @@ export const 保存の種類 = ['チャット', '写真読み取り', '予定表
 export const 保存の日数 = 365;
 export const 文の上限 = 256 * 1024;
 export const 写真の上限 = 5 * 1024 * 1024;
-export const 写真の型 = ['image/jpeg', 'image/png', 'image/webp', 'application/pdf'];
+export const 写真の型 = ['image/jpeg', 'image/png', 'image/webp', 'image/heic', 'image/heif', 'image/gif', 'application/pdf'];
 const idの形 = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 
 /**
