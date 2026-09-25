@@ -30,3 +30,18 @@ simple = { limit = 40, period = 60 }
 name = "RATE_HOZON"
 namespace_id = "1002"
 simple = { limit = 60, period = 60 }
+
+# アプリの改善のための保存（src/hozon.mjs）。文字は D1、写真・PDF は KV。2026-09-26 に作った
+[[d1_databases]]
+binding = "KAIZEN_DB"
+database_name = "kyudo-kaizen"
+database_id = "a98a2544-4879-4845-adc1-df220d31a0b5"
+migrations_dir = "migrations"
+
+[[kv_namespaces]]
+binding = "KAIZEN_PHOTOS"
+id = "775e947b450f4aa69def0d70d90ad1ba"
+
+# 1 年を過ぎた保存を消す定時の処理（毎日 3:17 JST）
+[triggers]
+crons = ["17 18 * * *"]
