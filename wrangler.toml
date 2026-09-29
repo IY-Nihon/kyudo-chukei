@@ -17,7 +17,9 @@ FIREBASE_PROJECT_IDS = "kyudoscoremanager,kyudoscoremanager-stg"
 # 呼んでよい出どころ（CORS）。検証は手元の配り口も許す
 ALLOWED_ORIGINS = "https://kyudoscoremanager.web.app,https://kyudoscoremanager.firebaseapp.com,https://kyudoscoremanager-stg.web.app,https://kyudoscoremanager-stg.firebaseapp.com,http://localhost:8090,http://localhost:8091,http://127.0.0.1:8090,http://127.0.0.1:8091,http://localhost:8081"
 # 呼んでよい模型
-ALLOWED_MODELS = "gemini-3.6-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash"
+ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash"
+# 模型の切り替えの並び（新しい順）。使う模型が混んでいる・上限・無いときは、要求した模型のあと、この並びの残りを順に試す
+MODEL_CHAIN = ""
 
 # 人ごとの回数の上限（1分あたり）。鍵を抜かれなくても、1人が回し続けるのを止める
 [[ratelimits]]
@@ -45,3 +47,10 @@ id = "775e947b450f4aa69def0d70d90ad1ba"
 # 1 年を過ぎた保存を消す定時の処理（毎日 3:17 JST）
 [triggers]
 crons = ["17 18 * * *"]
+
+# 実行場所。Google の Gemini API は、呼ぶ側の場所（Cloudflare の拠点）が未対応の地域だと
+# 「User location is not supported」の 400 を返す。拠点は呼んだ人の近くで決まり、日によって・時刻によって
+# 通ったり通らなかったりした（2026-09-29 に gemini-3.6-flash・3.8-flash が同じ時刻に 400）。
+# 日本（Google Cloud 東京）の近くに固定する
+[placement]
+region = "gcp:asia-northeast1"

@@ -98,7 +98,6 @@ export default {
     // 上流へ。鍵はここで付ける。体は読み解かないが、鍵を替えて送り直せるよう一度手元に置く
     const 鍵たち = 鍵の一覧(env);
     if (!鍵たち.length) return 答える({ error: '中継に鍵が置かれていません' }, 500, 許す出どころ);
-    const 上流のURL = 上流 + 道 + (url.search || '');
     const 種 = request.headers.get('Content-Type');
     const 依頼者 = request.headers.get('x-goog-api-client');
     let 体 = request.method === 'GET' || request.method === 'HEAD' ? undefined : await request.arrayBuffer();
@@ -112,37 +111,26 @@ export default {
       const 直した = 道具の返事のroleを直す(new TextDecoder().decode(体));
       if (直した !== null) 体 = new TextEncoder().encode(直した);
     }
-    let 番 = 次の鍵++ % 鍵たち.length;
-    let 返事 = null;
-    let 使った = -1;
-    let 鍵を替えた = 0;
-    let 混んだ = 0;
-    for (;;) {
-      const 頭 = new Headers();
-      頭.set('x-goog-api-key', 鍵たち[番]);
-      if (種) 頭.set('Content-Type', 種);
-      if (依頼者) 頭.set('x-goog-api-client', 依頼者);
-      try {
-        返事 = await fetch(上流のURL, { method: request.method, headers: 頭, body: 体 });
-      } catch (e) {
-        return 答える({ error: 'Gemini につながりませんでした', 訳: String((e && e.message) || e) }, 502, 許す出どころ);
-      }
-      使った = 番;
-      const 訳 = await 送り直す訳(返事);
-      if (訳 === '鍵' && 鍵を替えた < 鍵たち.length - 1) 鍵を替えた++;
-      else if (訳 === '混み' && 混んだ < 混みの待ち.length) await new Promise((r) => setTimeout(r, 混みの待ち[混んだ++]));
-      else break;
-      // 使わない返事の体は捨てる（つなぎっぱなしにしない）
-      if (返事.body) await 返事.body.cancel().catch(() => {});
-      番 = (番 + 1) % 鍵たち.length;
-    }
+    // 上流へ。模型の切り替え・鍵の回し持ち・混んだときの待ちは 上流へ送る（検査できるよう外に出してある）
+    const 送り = await 上流へ送る({
+      候補: 候補の模型たち(道, env.MODEL_CHAIN),
+      鍵たち,
+      始めの鍵: 次の鍵++ % 鍵たち.length,
+      search: url.search || '',
+      method: request.method,
+      体,
+      種,
+      依頼者,
+    });
+    if (送り.つながらない) return 答える({ error: 'Gemini につながりませんでした', 訳: 送り.訳 }, 502, 許す出どころ);
+    const { 返事, 使った, 使った模型, 混んだ } = 送り;
     // そのまま返す（流し読み（SSE）もこのままで通る）
     const 出す頭 = new Headers(返事.headers);
     for (const [k, v] of Object.entries(CORSの頭(許す出どころ))) 出す頭.set(k, v);
     出す頭.delete('content-security-policy');
     // どの鍵で答えたかは返事に載せない（載せると、鍵の数と回し方が外から読める）。
     // 運用者は wrangler tail で見る
-    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''}`);
+    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${使った模型 || '-'} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''}`);
     return new Response(返事.body, { status: 返事.status, headers: 出す頭 });
   },
 
@@ -267,6 +255,76 @@ function 上流の道にする(url, 許す模型) {
   const 模型 = m[2];
   if (!許す模型.includes(模型)) return null;
   return 道;
+}
+
+/**
+ * 上流（Gemini）へ送る。使う模型が混んでいる（503）・どの鍵も上限（429）・もう無い（404）ときは、
+ * 次の模型で同じ体をもう一度送る。模型ごとに枠も混み具合も別（無料枠の上限は模型ごと：
+ * 2026-09-29 に gemini-3.6-flash が 4 時間以上 503 のまま、写真の読み取りが全部止まった）。
+ * 鍵は、429・403 などなら次の鍵に替える（全部だめなら次の模型へ）。最後の模型が混んでいるときだけ、
+ * 待って送り直す（混みの待ち）。
+ * @param {{候補:{模型:string,道:string}[], 鍵たち:string[], 始めの鍵:number, search:string, method:string,
+ *   体?:ArrayBuffer, 種?:string|null, 依頼者?:string|null, fetch?:Function, 待つ?:(ms:number)=>Promise<void>}} 注文
+ */
+export async function 上流へ送る(注文) {
+  const { 候補, 鍵たち, search, method, 体, 種, 依頼者 } = 注文;
+  const 送る = 注文.fetch || fetch;
+  const 待つ = 注文.待つ || ((ms) => new Promise((r) => setTimeout(r, ms)));
+  let 番 = 注文.始めの鍵;
+  let 返事 = null;
+  let 使った = -1;
+  let 使った模型 = '';
+  let 混んだ = 0;
+  for (let 順 = 0; 順 < 候補.length; 順++) {
+    const 最後の模型 = 順 === 候補.length - 1;
+    使った模型 = 候補[順].模型;
+    const 今のURL = 上流 + 候補[順].道 + search;
+    let 鍵を替えた = 0;
+    混んだ = 0;
+    let 次の模型へ = false;
+    for (;;) {
+      const 頭 = new Headers();
+      頭.set('x-goog-api-key', 鍵たち[番]);
+      if (種) 頭.set('Content-Type', 種);
+      if (依頼者) 頭.set('x-goog-api-client', 依頼者);
+      try {
+        返事 = await 送る(今のURL, { method, headers: 頭, body: 体 });
+      } catch (e) {
+        return { つながらない: true, 訳: String((e && e.message) || e) };
+      }
+      使った = 番;
+      const 訳 = await 送り直す訳(返事);
+      if (訳 === '鍵' && 鍵を替えた < 鍵たち.length - 1) 鍵を替えた++;
+      // 混んでいる：次の模型があれば待たずに移る。最後の模型なら、待って送り直す
+      else if (訳 === '混み' && !最後の模型) 次の模型へ = true;
+      else if (訳 === '混み' && 混んだ < 混みの待ち.length) await 待つ(混みの待ち[混んだ++]);
+      // どの鍵も上限（429）、または模型が無い（404）：次の模型へ
+      else if (!最後の模型 && (訳 === '鍵' || 返事.status === 404)) 次の模型へ = true;
+      else break;
+      // 使わない返事の体は捨てる（つなぎっぱなしにしない）
+      if (返事.body) await 返事.body.cancel().catch(() => {});
+      番 = (番 + 1) % 鍵たち.length;
+      if (次の模型へ) break;
+    }
+    if (!次の模型へ) break;
+  }
+  return { 返事, 使った, 使った模型, 混んだ };
+}
+
+/**
+ * 模型の切り替えの候補。要求された模型を先頭に、連鎖（MODEL_CHAIN。, 区切り。新しい順）の
+ * 残りを並べた順に返す。要求した模型が連鎖に無い、または模型を含まない道（一覧）は、そのまま 1 つだけ。
+ * 返すのは { 模型, 道 } の並び（道は模型の名前だけを入れ替えたもの）。
+ * @param {string} 道 上流の道（/v1beta/models/{model}:generateContent など）
+ * @param {string|undefined} 連鎖
+ * @returns {{模型:string, 道:string}[]}
+ */
+export function 候補の模型たち(道, 連鎖) {
+  const m = String(道).match(/^(\/(?:v1beta|v1)\/models\/)([^/:]+)(:(?:generateContent|streamGenerateContent))$/);
+  if (!m) return [{ 模型: '', 道 }];
+  const 並び = String(連鎖 || '').split(',').map((x) => x.trim()).filter(Boolean);
+  if (!並び.includes(m[2])) return [{ 模型: m[2], 道 }];
+  return [m[2], ...並び.filter((x) => x !== m[2])].map((模型) => ({ 模型, 道: m[1] + 模型 + m[3] }));
 }
 
 /** Firebase の ID トークンを確かめる。返すのは中身（sub, aud, ...） */
