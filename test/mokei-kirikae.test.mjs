@@ -255,3 +255,7 @@ test('全部の鍵が 429 の模型は、控えの間は飛ばして次の模型
   assert.strictEqual(二回目.使った模型, 'gemini-3.7-flash');
   assert.deepStrictEqual(呼, ['gemini-3.7-flash'], '2 回目は枠切れの 3.6・3.8 を飛ばして 3.7 へ');
 });
+
+test('連鎖の指定を空にすれば、切り替えない（試験で、その模型そのものの答えを見る）', () => {
+  assert.strictEqual(候補の模型たち(生成の道('gemini-3.8-flash'), '').length, 1);
+});

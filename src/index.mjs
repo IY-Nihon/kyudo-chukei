@@ -126,7 +126,8 @@ export default {
     }
     // 上流へ。模型の切り替え・鍵の回し持ち・混んだときの待ちは 上流へ送る（検査できるよう外に出してある）
     const 送り = await 上流へ送る({
-      候補: 候補の模型たち(道, /:streamGenerateContent$/.test(道) ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN),
+      // 試験で「その模型そのものの答え」を見たいときは、X-Kyudo-No-Chain: 1 を付けると切り替えない
+      候補: 候補の模型たち(道, request.headers.get('X-Kyudo-No-Chain') ? '' : /:streamGenerateContent$/.test(道) ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN),
       鍵たち,
       始めの鍵: 次の鍵++ % 鍵たち.length,
       search: url.search || '',
@@ -240,7 +241,7 @@ function CORSの頭(出どころ) {
   return {
     'Access-Control-Allow-Origin': 出どころ,
     'Access-Control-Allow-Methods': 'GET, POST, PUT, OPTIONS',
-    'Access-Control-Allow-Headers': 'Authorization, Content-Type, x-goog-api-key, x-goog-api-client',
+    'Access-Control-Allow-Headers': 'Authorization, Content-Type, x-goog-api-key, x-goog-api-client, X-Kyudo-No-Chain',
     'Access-Control-Max-Age': '86400',
     Vary: 'Origin',
   };
