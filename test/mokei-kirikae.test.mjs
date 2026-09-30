@@ -210,3 +210,20 @@ test('読み直した流れの見出しから、圧縮・長さ・転送の指�
   assert.strictEqual(返事.headers.get('content-length'), null);
   assert.strictEqual(返事.headers.get('content-type'), 'text/event-stream');
 });
+
+test('写真つきの大きな体（1MB 超）でも、考えない体は軽い（JSON を読み直さない。CPU の上限に掛からない）', () => {
+  const 大 = new TextEncoder().encode(JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'x"tools":y' }, { inlineData: { mimeType: 'image/jpeg', data: 'A'.repeat(1_400_000) } }] }], generationConfig: { responseMimeType: 'application/json' } }));
+  const t0 = performance.now();
+  let 結果;
+  for (let i = 0; i < 20; i++) 結果 = 考えない体(大, '/v1beta/models/gemini-3.5-flash:streamGenerateContent');
+  const 平均 = (performance.now() - t0) / 20;
+  assert.ok(平均 < 8, `1 回 ${平均.toFixed(1)}ms は重い`);
+  const 直した = JSON.parse(new TextDecoder().decode(結果));
+  assert.deepStrictEqual(直した.generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  assert.strictEqual(直した.generationConfig.responseMimeType, 'application/json');
+  // generationConfig が空・無い体も、壊れない JSON のまま
+  for (const 元 of ['{"contents":[],"generationConfig":{}}', '{"contents":[]}']) {
+    const j = JSON.parse(new TextDecoder().decode(考えない体(new TextEncoder().encode(元), '/v1beta/models/gemini-3.5-flash:generateContent')));
+    assert.deepStrictEqual(j.generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  }
+});
