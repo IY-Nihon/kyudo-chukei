@@ -293,6 +293,7 @@ export async function 上流へ送る(注文) {
         return { つながらない: true, 訳: String((e && e.message) || e) };
       }
       使った = 番;
+      返事 = await 流れの先頭を見る(返事, 候補[順].道);
       const 訳 = await 送り直す訳(返事);
       if (訳 === '鍵' && 鍵を替えた < 鍵たち.length - 1) 鍵を替えた++;
       // 混んでいる：次の模型があれば待たずに移る。最後の模型なら、待って送り直す
@@ -312,7 +313,7 @@ export async function 上流へ送る(注文) {
 }
 
 /**
- * 切り替え先の模型に送る体。流し読みでない依頼（写真の読み取りなど）は、generationConfig の
+ * 切り替え先の模型に送る体。写真の読み取り（流し読みでも JSON 出力で道具なしのもの）は、generationConfig の
  * thinkingConfig を { thinkingBudget: 0 } にする。3.8・3.7・3.5 は考える量が既定だと 100 秒を超え、
  * Cloudflare が 524 で切る（2026-09-29 に実測。3.8 は既定で 158 秒 503、考えないと 12 秒）。
  * 依頼が自分で thinkingConfig を持っているとき、流し読み（AI チャット）、JSON として読めない体は、そのまま返す。
@@ -320,10 +321,13 @@ export async function 上流へ送る(注文) {
  * @param {string} 道
  */
 export function 考えない体(体, 道) {
-  if (!体 || /:streamGenerateContent$/.test(道)) return 体;
+  if (!体) return 体;
   try {
     const j = JSON.parse(new TextDecoder().decode(体));
     if (!j || typeof j !== 'object') return 体;
+    // 流し読みは AI チャットも使う。チャット（道具・system 指示つき）は考える量をそのままにし、
+    // 写真の読み取り（JSON 出力で、道具なし）だけ考えない
+    if (/:streamGenerateContent$/.test(道) && (j.tools || j.systemInstruction || !(j.generationConfig && j.generationConfig.responseMimeType === 'application/json'))) return 体;
     j.generationConfig = j.generationConfig || {};
     if (j.generationConfig.thinkingConfig) return 体;
     j.generationConfig.thinkingConfig = { thinkingBudget: 0 };
@@ -331,6 +335,62 @@ export function 考えない体(体, 道) {
   } catch (e) {
     return 体;
   }
+}
+
+/**
+ * 流し読み（:streamGenerateContent）は、HTTP 200 を返してから、流れの中身でエラーを返すことがある
+ *（2026-09-30：混み合っている時に、200 の体が {"error":{"code":503,…}} だけの JSON だった）。
+ * 状態だけ見ていると送り直しも模型の切り替えも働かず、アプリの SDK は「Failed to parse stream」で止まる。
+ * 最初の塊だけ先に読み、data: で始まらず { で始まる（＝エラーの JSON）なら、そのエラーの code を
+ * 状態にした返事にして返す（送り直す訳が 503・429 を見分けられる）。普通の流れは、読んだ塊を頭に戻して返す。
+ * 流し読み以外・体が無いもの・200 でないものは、そのまま返す。
+ * @param {Response} 返事
+ * @param {string} 道
+ */
+export async function 流れの先頭を見る(返事, 道) {
+  if (!/:streamGenerateContent$/.test(道) || !返事 || !返事.body || 返事.status !== 200) return 返事;
+  const 読む = 返事.body.getReader();
+  let 先頭;
+  try {
+    先頭 = await 読む.read();
+  } catch (e) {
+    return new Response('', { status: 502 });
+  }
+  if (先頭.done || !先頭.value) return new Response(new Uint8Array(0), { status: 返事.status, headers: 返事.headers });
+  const 文 = new TextDecoder().decode(先頭.value.subarray(0, 400)).trimStart();
+  if (文.startsWith('{')) {
+    // エラーの JSON。残りも読んで（小さい）、code を状態にして返す
+    let 全部 = new TextDecoder().decode(先頭.value);
+    for (;;) {
+      const 次 = await 読む.read().catch(() => ({ done: true }));
+      if (次.done) break;
+      全部 += new TextDecoder().decode(次.value);
+    }
+    let 番号 = 502;
+    try {
+      const c = JSON.parse(全部).error.code;
+      if (Number.isInteger(c) && c >= 400 && c < 600) 番号 = c;
+    } catch (e) {}
+    return new Response(全部, { status: 番号, headers: { 'Content-Type': 'application/json' } });
+  }
+  const 続き = new ReadableStream({
+    start(c) {
+      c.enqueue(先頭.value);
+    },
+    async pull(c) {
+      try {
+        const 次 = await 読む.read();
+        if (次.done) c.close();
+        else c.enqueue(次.value);
+      } catch (e) {
+        c.error(e);
+      }
+    },
+    cancel(理由) {
+      return 読む.cancel(理由);
+    },
+  });
+  return new Response(続き, { status: 返事.status, headers: 返事.headers });
 }
 
 /**

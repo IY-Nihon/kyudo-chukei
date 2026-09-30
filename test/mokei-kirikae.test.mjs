@@ -114,8 +114,14 @@ test('切り替え先の写真の読み取りは考える量を 0 に。流し�
   assert.deepStrictEqual(読む(考えない体(体({ contents: [] }), 道)).generationConfig.thinkingConfig, { thinkingBudget: 0 });
   const 自分で = 体({ generationConfig: { thinkingConfig: { thinkingLevel: 'low' } } });
   assert.strictEqual(考えない体(自分で, 道), 自分で);
-  const 流し = 体({ contents: [] });
-  assert.strictEqual(考えない体(流し, '/v1beta/models/gemini-3.8-flash:streamGenerateContent'), 流し);
+  // 流し読み：AI チャット（道具・system 指示つき、JSON 出力でない）はそのまま。写真の読み取り（JSON 出力・道具なし）は考えない
+  const 流し道 = '/v1beta/models/gemini-3.8-flash:streamGenerateContent';
+  const チャット = 体({ contents: [], tools: [{ functionDeclarations: [] }], systemInstruction: { parts: [] } });
+  assert.strictEqual(考えない体(チャット, 流し道), チャット);
+  const 文だけ = 体({ contents: [] });
+  assert.strictEqual(考えない体(文だけ, 流し道), 文だけ, 'JSON 出力でない流し読みはそのまま');
+  const 読み取り = 体({ contents: [], generationConfig: { responseMimeType: 'application/json' } });
+  assert.deepStrictEqual(読む(考えない体(読み取り, 流し道)).generationConfig.thinkingConfig, { thinkingBudget: 0 });
   const 変な = new TextEncoder().encode('not json');
   assert.strictEqual(考えない体(変な, 道), 変な);
   assert.strictEqual(考えない体(undefined, 道), undefined);
@@ -140,4 +146,54 @@ test('先頭以外の模型に送るときだけ、体を考えない形に直�
   assert.strictEqual(結果.使った模型, 'gemini-3.5-flash');
   assert.ok(!体たち[0].includes('thinkingBudget'), '先頭の模型には元の体');
   assert.ok(体たち[1].includes('"thinkingBudget":0'), '切り替え先には考えない体');
+});
+
+import { 流れの先頭を見る, 送り直す訳 } from '../src/index.mjs';
+
+const 流しの道 = '/v1beta/models/gemini-3.6-flash:streamGenerateContent';
+const 流れ = (...塊) => new ReadableStream({ start(c) { for (const x of 塊) c.enqueue(new TextEncoder().encode(x)); c.close(); } });
+
+test('流し読み：200 でも体がエラー JSON なら、そのエラーの code を状態にして返す（503 は混みとして切り替えられる）', async () => {
+  const 返事 = await 流れの先頭を見る(new Response(流れ('{\n  "error": {\n    "code": 503,\n    "message": "high demand"\n  }\n}\n'), { status: 200 }), 流しの道);
+  assert.strictEqual(返事.status, 503);
+  assert.strictEqual(await 送り直す訳({ status: 返事.status, clone: () => 返事.clone() }), '混み');
+  const 上限 = await 流れの先頭を見る(new Response(流れ('{"error":{"code":429,"message":"quota"}}'), { status: 200 }), 流しの道);
+  assert.strictEqual(上限.status, 429);
+});
+
+test('流し読み：普通の流れ（data: で始まる）は、読んだ塊を頭に戻してそのまま返す', async () => {
+  const 返事 = await 流れの先頭を見る(new Response(流れ('data: {"a":1}\r\n\r\n', 'data: {"a":2}\r\n\r\n'), { status: 200 }), 流しの道);
+  assert.strictEqual(返事.status, 200);
+  assert.strictEqual(await 返事.text(), 'data: {"a":1}\r\n\r\ndata: {"a":2}\r\n\r\n');
+});
+
+test('流し読みでない道・体の無い返事・200 でない返事は触らない', async () => {
+  const 生成 = new Response('{"error":{"code":503}}', { status: 200 });
+  assert.strictEqual(await 流れの先頭を見る(生成, '/v1beta/models/gemini-3.6-flash:generateContent'), 生成);
+  const 五百 = new Response('x', { status: 503 });
+  assert.strictEqual(await 流れの先頭を見る(五百, 流しの道), 五百);
+  assert.strictEqual(await 流れの先頭を見る(null, 流しの道), null);
+});
+
+test('流し読みで 200 の中身が 503 なら、次の模型へ切り替える', async () => {
+  const 呼 = [];
+  const 結果 = await 上流へ送る({
+    候補: 候補の模型たち('/v1beta/models/gemini-3.6-flash:streamGenerateContent', 'gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash'),
+    鍵たち: ['K0'],
+    始めの鍵: 0,
+    search: '?alt=sse',
+    method: 'POST',
+    体: new TextEncoder().encode('{"contents":[]}'),
+    fetch: async (url) => {
+      const 模型 = url.match(/models\/([^:]+):/)[1];
+      呼.push(模型);
+      return 模型 === 'gemini-3.7-flash'
+        ? new Response(流れ('data: {"ok":1}\r\n\r\n'), { status: 200 })
+        : new Response(流れ('{"error":{"code":503,"message":"high demand"}}'), { status: 200 });
+    },
+    待つ: async () => {},
+  });
+  assert.strictEqual(結果.使った模型, 'gemini-3.7-flash');
+  assert.deepStrictEqual(呼, ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash']);
+  assert.strictEqual(結果.返事.status, 200);
 });
