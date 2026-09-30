@@ -7,9 +7,11 @@
  * 写真の読み取りが全部止まった。無料枠の上限（429）も模型ごとなので、別の模型なら通る。
  * 新しい順（3.8 → 3.7 → 3.6 → 3.5 → 2.5）に、次の模型で同じ体をもう一度送る。
  */
-import test from 'node:test';
+import test, { beforeEach } from 'node:test';
 import assert from 'node:assert';
-import { 候補の模型たち, 上流へ送る } from '../src/index.mjs';
+import { 候補の模型たち, 上流へ送る, 枠切れを忘れる } from '../src/index.mjs';
+
+beforeEach(() => 枠切れを忘れる());
 
 const 連鎖 = 'gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash';
 const 生成の道 = (m) => `/v1beta/models/${m}:generateContent`;
@@ -226,4 +228,30 @@ test('写真つきの大きな体（1MB 超）でも、考えない体は軽い�
     const j = JSON.parse(new TextDecoder().decode(考えない体(new TextEncoder().encode(元), '/v1beta/models/gemini-3.5-flash:generateContent')));
     assert.deepStrictEqual(j.generationConfig.thinkingConfig, { thinkingBudget: 0 });
   }
+});
+
+test('全部の鍵が 429 の模型は、控えの間は飛ばして次の模型へ移る（毎回、鍵を全部なめない）', async () => {
+  const 呼 = [];
+  const 送る = async (url) => {
+    const 模型 = url.match(/models\/([^:]+):/)[1];
+    呼.push(模型);
+    return 模型 === 'gemini-3.6-flash' || 模型 === 'gemini-3.8-flash' ? { status: 429, clone: () => ({ text: async () => '' }), body: null } : { status: 200, clone: () => ({ text: async () => '' }), body: null };
+  };
+  const 注文 = () => ({
+    候補: 候補の模型たち('/v1beta/models/gemini-3.6-flash:generateContent', 'gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash'),
+    鍵たち: ['K0', 'K1', 'K2'],
+    始めの鍵: 0,
+    search: '',
+    method: 'POST',
+    体: new TextEncoder().encode('{"contents":[]}'),
+    fetch: 送る,
+    待つ: async () => {},
+  });
+  const 一回目 = await 上流へ送る(注文());
+  assert.strictEqual(一回目.使った模型, 'gemini-3.7-flash');
+  assert.strictEqual(呼.filter((m) => m === 'gemini-3.6-flash').length, 3, '1 回目は鍵を全部試す');
+  呼.length = 0;
+  const 二回目 = await 上流へ送る(注文());
+  assert.strictEqual(二回目.使った模型, 'gemini-3.7-flash');
+  assert.deepStrictEqual(呼, ['gemini-3.7-flash'], '2 回目は枠切れの 3.6・3.8 を飛ばして 3.7 へ');
 });
