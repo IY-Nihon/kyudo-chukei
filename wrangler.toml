@@ -18,8 +18,11 @@ FIREBASE_PROJECT_IDS = "kyudoscoremanager,kyudoscoremanager-stg"
 ALLOWED_ORIGINS = "https://kyudoscoremanager.web.app,https://kyudoscoremanager.firebaseapp.com,https://kyudoscoremanager-stg.web.app,https://kyudoscoremanager-stg.firebaseapp.com,http://localhost:8090,http://localhost:8091,http://127.0.0.1:8090,http://127.0.0.1:8091,http://localhost:8081"
 # 呼んでよい模型
 ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash"
-# 模型の切り替えの並び（新しい順）。使う模型が混んでいる・上限・無いときは、要求した模型のあと、この並びの残りを順に試す
-MODEL_CHAIN = ""
+# 模型の切り替えの並び。使う模型が混んでいる・上限・無いときは、要求した模型のあと、この並びの残りを順に試す。
+# MODEL_CHAIN … 写真の読み取りなど（3.8・3.7 は写真の読み取りが 100 秒を超えて 15 枚中 2〜3 枚しか通らなかったので入れない。3.5 は考えない設定で 11/15）
+# MODEL_CHAIN_STREAM … AI チャット（3.8・3.7 は 3 問とも正しく答えた）
+MODEL_CHAIN = "gemini-3.6-flash,gemini-3.5-flash"
+MODEL_CHAIN_STREAM = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash"
 
 # 人ごとの回数の上限（1分あたり）。鍵を抜かれなくても、1人が回し続けるのを止める
 [[ratelimits]]

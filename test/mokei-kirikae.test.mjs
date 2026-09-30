@@ -101,3 +101,43 @@ test('つながらないときは、つながらないと返す', async () => {
   const 結果 = await 上流へ送る({ ...注文([], () => 返事(200)), fetch: async () => { throw new Error('network'); } });
   assert.strictEqual(結果.つながらない, true);
 });
+
+import { 考えない体 } from '../src/index.mjs';
+
+test('切り替え先の写真の読み取りは考える量を 0 に。流し読み・自分で指定した依頼・JSON でない体はそのまま', () => {
+  const 道 = '/v1beta/models/gemini-3.5-flash:generateContent';
+  const 体 = (o) => new TextEncoder().encode(JSON.stringify(o));
+  const 読む = (b) => JSON.parse(new TextDecoder().decode(b));
+  const 直した = 読む(考えない体(体({ contents: [], generationConfig: { responseMimeType: 'application/json' } }), 道));
+  assert.deepStrictEqual(直した.generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  assert.strictEqual(直した.generationConfig.responseMimeType, 'application/json');
+  assert.deepStrictEqual(読む(考えない体(体({ contents: [] }), 道)).generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  const 自分で = 体({ generationConfig: { thinkingConfig: { thinkingLevel: 'low' } } });
+  assert.strictEqual(考えない体(自分で, 道), 自分で);
+  const 流し = 体({ contents: [] });
+  assert.strictEqual(考えない体(流し, '/v1beta/models/gemini-3.8-flash:streamGenerateContent'), 流し);
+  const 変な = new TextEncoder().encode('not json');
+  assert.strictEqual(考えない体(変な, 道), 変な);
+  assert.strictEqual(考えない体(undefined, 道), undefined);
+});
+
+test('先頭以外の模型に送るときだけ、体を考えない形に直して送る', async () => {
+  const 体たち = [];
+  const 結果 = await 上流へ送る({
+    候補: 候補の模型たち('/v1beta/models/gemini-3.6-flash:generateContent', 'gemini-3.6-flash,gemini-3.5-flash'),
+    鍵たち: ['K0'],
+    始めの鍵: 0,
+    search: '',
+    method: 'POST',
+    体: new TextEncoder().encode('{"contents":[]}'),
+    種: 'application/json',
+    fetch: async (url, init) => {
+      体たち.push(new TextDecoder().decode(init.body));
+      return url.includes('gemini-3.6-flash') ? { status: 503, clone: () => ({ text: async () => '' }), body: null } : { status: 200, clone: () => ({ text: async () => '' }), body: null };
+    },
+    待つ: async () => {},
+  });
+  assert.strictEqual(結果.使った模型, 'gemini-3.5-flash');
+  assert.ok(!体たち[0].includes('thinkingBudget'), '先頭の模型には元の体');
+  assert.ok(体たち[1].includes('"thinkingBudget":0'), '切り替え先には考えない体');
+});

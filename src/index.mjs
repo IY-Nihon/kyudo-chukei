@@ -113,7 +113,7 @@ export default {
     }
     // 上流へ。模型の切り替え・鍵の回し持ち・混んだときの待ちは 上流へ送る（検査できるよう外に出してある）
     const 送り = await 上流へ送る({
-      候補: 候補の模型たち(道, env.MODEL_CHAIN),
+      候補: 候補の模型たち(道, /:streamGenerateContent$/.test(道) ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN),
       鍵たち,
       始めの鍵: 次の鍵++ % 鍵たち.length,
       search: url.search || '',
@@ -288,7 +288,7 @@ export async function 上流へ送る(注文) {
       if (種) 頭.set('Content-Type', 種);
       if (依頼者) 頭.set('x-goog-api-client', 依頼者);
       try {
-        返事 = await 送る(今のURL, { method, headers: 頭, body: 体 });
+        返事 = await 送る(今のURL, { method, headers: 頭, body: 順 > 0 ? 考えない体(体, 候補[順].道) : 体 });
       } catch (e) {
         return { つながらない: true, 訳: String((e && e.message) || e) };
       }
@@ -309,6 +309,28 @@ export async function 上流へ送る(注文) {
     if (!次の模型へ) break;
   }
   return { 返事, 使った, 使った模型, 混んだ };
+}
+
+/**
+ * 切り替え先の模型に送る体。流し読みでない依頼（写真の読み取りなど）は、generationConfig の
+ * thinkingConfig を { thinkingBudget: 0 } にする。3.8・3.7・3.5 は考える量が既定だと 100 秒を超え、
+ * Cloudflare が 524 で切る（2026-09-29 に実測。3.8 は既定で 158 秒 503、考えないと 12 秒）。
+ * 依頼が自分で thinkingConfig を持っているとき、流し読み（AI チャット）、JSON として読めない体は、そのまま返す。
+ * @param {ArrayBuffer|Uint8Array|undefined} 体
+ * @param {string} 道
+ */
+export function 考えない体(体, 道) {
+  if (!体 || /:streamGenerateContent$/.test(道)) return 体;
+  try {
+    const j = JSON.parse(new TextDecoder().decode(体));
+    if (!j || typeof j !== 'object') return 体;
+    j.generationConfig = j.generationConfig || {};
+    if (j.generationConfig.thinkingConfig) return 体;
+    j.generationConfig.thinkingConfig = { thinkingBudget: 0 };
+    return new TextEncoder().encode(JSON.stringify(j));
+  } catch (e) {
+    return 体;
+  }
 }
 
 /**
