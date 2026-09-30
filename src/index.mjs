@@ -275,6 +275,7 @@ export async function 上流へ送る(注文) {
   let 使った = -1;
   let 使った模型 = '';
   let 混んだ = 0;
+  const 切り替えの体 = [];
   for (let 順 = 0; 順 < 候補.length; 順++) {
     const 最後の模型 = 順 === 候補.length - 1;
     使った模型 = 候補[順].模型;
@@ -288,7 +289,7 @@ export async function 上流へ送る(注文) {
       if (種) 頭.set('Content-Type', 種);
       if (依頼者) 頭.set('x-goog-api-client', 依頼者);
       try {
-        返事 = await 送る(今のURL, { method, headers: 頭, body: 順 > 0 ? 考えない体(体, 候補[順].道) : 体 });
+        返事 = await 送る(今のURL, { method, headers: 頭, body: 順 > 0 ? (切り替えの体[順] ??= 考えない体(体, 候補[順].道)) : 体 });
       } catch (e) {
         return { つながらない: true, 訳: String((e && e.message) || e) };
       }
@@ -321,20 +322,30 @@ export async function 上流へ送る(注文) {
  * @param {string} 道
  */
 export function 考えない体(体, 道) {
-  if (!体) return 体;
-  try {
-    const j = JSON.parse(new TextDecoder().decode(体));
-    if (!j || typeof j !== 'object') return 体;
-    // 流し読みは AI チャットも使う。チャット（道具・system 指示つき）は考える量をそのままにし、
-    // 写真の読み取り（JSON 出力で、道具なし）だけ考えない
-    if (/:streamGenerateContent$/.test(道) && (j.tools || j.systemInstruction || !(j.generationConfig && j.generationConfig.responseMimeType === 'application/json'))) return 体;
-    j.generationConfig = j.generationConfig || {};
-    if (j.generationConfig.thinkingConfig) return 体;
-    j.generationConfig.thinkingConfig = { thinkingBudget: 0 };
-    return new TextEncoder().encode(JSON.stringify(j));
-  } catch (e) {
-    return 体;
+  if (!体 || !体.byteLength) return 体;
+  // 体は写真つきで 1MB 前後になる。JSON として読み直して書き直すと、Cloudflare の CPU の上限を超えて
+  // 中継が落ちた（2026-09-30。3.6 が混んで 3.8→3.7→3.5 と移るたびに、鍵の数だけ繰り返した）。
+  // 文字として 1 回読み、印の文字を探して、差し込むだけにする。
+  // 写真の base64 には引用符が入らず、文の中の引用符は \" と書かれるので、"tools": のような検索は本物の項目だけに当たる
+  const 文 = new TextDecoder().decode(体);
+  if (文.indexOf('"thinkingConfig":') >= 0) return 体;
+  if (/:streamGenerateContent$/.test(道)) {
+    // 流し読みは AI チャットも使う。写真の読み取り（JSON 出力で、道具・system 指示なし）だけ考えない
+    if (文.indexOf('"tools":') >= 0 || 文.indexOf('"systemInstruction":') >= 0 || 文.indexOf('"responseMimeType":"application/json"') < 0) return 体;
   }
+  if (文.charAt(文.length - 1) !== '}' && 文.trimEnd().charAt(文.trimEnd().length - 1) !== '}') return 体;
+  const 差す = '"thinkingConfig":{"thinkingBudget":0}';
+  const i = 文.indexOf('"generationConfig":{');
+  let 直した;
+  if (i >= 0) {
+    const 頭 = i + '"generationConfig":{'.length;
+    直した = 文.slice(0, 頭) + 差す + (文.charAt(頭) === '}' ? '' : ',') + 文.slice(頭);
+  } else {
+    const 末 = 文.lastIndexOf('}');
+    if (末 < 1 || 文.trim() === '{}') return 体;
+    直した = 文.slice(0, 末) + ',"generationConfig":{' + 差す + '}' + 文.slice(末);
+  }
+  return new TextEncoder().encode(直した);
 }
 
 /**
