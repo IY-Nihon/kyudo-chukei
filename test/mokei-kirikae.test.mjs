@@ -197,3 +197,16 @@ test('流し読みで 200 の中身が 503 なら、次の模型へ切り替え�
   assert.deepStrictEqual(呼, ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash']);
   assert.strictEqual(結果.返事.status, 200);
 });
+
+import { 見出しを整える } from '../src/index.mjs';
+
+test('読み直した流れの見出しから、圧縮・長さ・転送の指定を外す（付けたままだとブラウザが受け取れない）', async () => {
+  const 頭 = 見出しを整える(new Headers({ 'Content-Type': 'text/event-stream', 'Content-Encoding': 'gzip', 'Content-Length': '123', 'Transfer-Encoding': 'chunked' }));
+  assert.strictEqual(頭.get('content-type'), 'text/event-stream');
+  assert.strictEqual(頭.get('content-encoding'), null);
+  assert.strictEqual(頭.get('content-length'), null);
+  assert.strictEqual(頭.get('transfer-encoding'), null);
+  const 返事 = await 流れの先頭を見る(new Response(流れ('data: {"a":1}\r\n\r\n'), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Content-Length': '999' } }), 流しの道);
+  assert.strictEqual(返事.headers.get('content-length'), null);
+  assert.strictEqual(返事.headers.get('content-type'), 'text/event-stream');
+});
