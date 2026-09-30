@@ -356,7 +356,7 @@ export async function 流れの先頭を見る(返事, 道) {
   } catch (e) {
     return new Response('', { status: 502 });
   }
-  if (先頭.done || !先頭.value) return new Response(new Uint8Array(0), { status: 返事.status, headers: 返事.headers });
+  if (先頭.done || !先頭.value) return new Response(new Uint8Array(0), { status: 返事.status, headers: 見出しを整える(返事.headers) });
   const 文 = new TextDecoder().decode(先頭.value.subarray(0, 400)).trimStart();
   if (文.startsWith('{')) {
     // エラーの JSON。残りも読んで（小さい）、code を状態にして返す
@@ -390,7 +390,18 @@ export async function 流れの先頭を見る(返事, 道) {
       return 読む.cancel(理由);
     },
   });
-  return new Response(続き, { status: 返事.status, headers: 返事.headers });
+  return new Response(続き, { status: 返事.status, headers: 見出しを整える(返事.headers) });
+}
+
+/**
+ * 読み直した流れに付ける見出し。元の返事の Content-Encoding・Content-Length・Transfer-Encoding は外す
+ * （体はもう解凍されて流れになっている。付けたままだと、ブラウザが「Failed to fetch」で受け取れない。
+ * 2026-09-30、流し読みの先頭を見る修正でこれを踏み、AI チャットと写真の読み取りが止まった）
+ */
+export function 見出しを整える(元) {
+  const 頭 = new Headers(元);
+  for (const k of ['content-encoding', 'content-length', 'transfer-encoding']) 頭.delete(k);
+  return 頭;
 }
 
 /**
