@@ -125,6 +125,7 @@ export default {
       if (直した !== null) 体 = new TextEncoder().encode(直した);
     }
     // 上流へ。模型の切り替え・鍵の回し持ち・混んだときの待ちは 上流へ送る（検査できるよう外に出してある）
+    const 送り始め = Date.now();
     const 送り = await 上流へ送る({
       // 試験で「その模型そのものの答え」を見たいときは、X-Kyudo-No-Chain: 1 を付けると切り替えない
       候補: 候補の模型たち(道, request.headers.get('X-Kyudo-No-Chain') ? '' : /:streamGenerateContent$/.test(道) ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN),
@@ -144,12 +145,29 @@ export default {
     出す頭.delete('content-security-policy');
     // どの鍵で答えたかは返事に載せない（載せると、鍵の数と回し方が外から読める）。
     // 運用者は wrangler tail で見る
-    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${使った模型 || '-'} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''}`);
+    // 答えの最初の塊が来るまでの時間（流し読みは先頭を見てから返すので、文字が出始めるまでの時間）
+    const 先頭まで = Date.now() - 送り始め;
+    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${使った模型 || '-'} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''} ${先頭まで}ms 送った${送り.送った回数}`);
+    // 遅いときにどこで詰まったか後から見られるよう、1 回ごとに残す（待たない。書けなくても答えは返す）
+    if (env.KAIZEN_DB && ctx && ctx.waitUntil) {
+      ctx.waitUntil(
+        呼んだ記録を残す(env, {
+          企画: 本人.aud,
+          道,
+          使った模型,
+          状態: 返事.status,
+          先頭まで,
+          送った回数: 送り.送った回数,
+          混んだ,
+        }).catch((e) => console.warn('呼んだ記録を残せませんでした', e))
+      );
+    }
     return new Response(返事.body, { status: 返事.status, headers: 出す頭 });
   },
 
   // 毎日の定時の処理（wrangler.toml の [triggers]）。1 年を過ぎた改善のための保存を消す
   async scheduled(event, env, ctx) {
+    ctx.waitUntil(古い呼んだ記録を消す(env).catch(() => {}));
     ctx.waitUntil(
       古い保存を消す(env).then(
         (数) => console.log(`古い保存を ${数} 件消しました`),
@@ -289,6 +307,7 @@ export async function 上流へ送る(注文) {
   let 使った = -1;
   let 使った模型 = '';
   let 混んだ = 0;
+  let 送った回数 = 0;
   const 切り替えの体 = [];
   for (let 順 = 0; 順 < 候補.length; 順++) {
     const 最後の模型 = 順 === 候補.length - 1;
@@ -305,7 +324,12 @@ export async function 上流へ送る(注文) {
       if (種) 頭.set('Content-Type', 種);
       if (依頼者) 頭.set('x-goog-api-client', 依頼者);
       try {
-        返事 = await 送る(今のURL, { method, headers: 頭, body: 順 > 0 ? (切り替えの体[順] ??= 考えない体(体, 候補[順].道)) : 体 });
+        送った回数++;
+        返事 = await 送る(今のURL, {
+          method,
+          headers: 頭,
+          body: 順 > 0 ? (切り替えの体[順] ??= 急ぐ一言を足す(考えない体(体, 候補[順].道), 候補[順].模型, 候補[順].道)) : 体,
+        });
       } catch (e) {
         return { つながらない: true, 訳: String((e && e.message) || e) };
       }
@@ -329,7 +353,29 @@ export async function 上流へ送る(注文) {
     }
     if (!次の模型へ) break;
   }
-  return { 返事, 使った, 使った模型, 混んだ };
+  return { 返事, 使った, 使った模型, 混んだ, 送った回数 };
+}
+
+/** 考える時間が長い模型。切り替えでここへ送る AI チャットには、急ぐよう一言足す（2026-10-13 に運用者の指示で試す） */
+export const 急がせる模型 = ['gemini-3.8-flash'];
+export const 急ぐ一言 = '10秒以内に回答してください。';
+
+/**
+ * AI チャット（流し読みで systemInstruction のあるもの）を 急がせる模型 へ送るとき、systemInstruction の
+ * 先頭に 急ぐ一言 を差し込む。JSON は読み直さず文字の差し込みだけ（考えない体 と同じ理由）。それ以外はそのまま返す。
+ * @param {ArrayBuffer|Uint8Array|undefined} 体
+ * @param {string} 模型
+ * @param {string} 道
+ */
+export function 急ぐ一言を足す(体, 模型, 道) {
+  if (!体 || !体.byteLength || !急がせる模型.includes(模型) || !/:streamGenerateContent$/.test(道)) return 体;
+  const 文 = new TextDecoder().decode(体);
+  const i = 文.indexOf('"systemInstruction":');
+  if (i < 0) return 体;
+  const 部品 = 文.indexOf('"parts":[', i);
+  if (部品 < 0) return 体;
+  const 差す所 = 部品 + '"parts":['.length;
+  return new TextEncoder().encode(文.slice(0, 差す所) + JSON.stringify({ text: 急ぐ一言 }) + ',' + 文.slice(差す所));
 }
 
 /**
@@ -506,4 +552,27 @@ function base64urlをバイトに(s) {
 
 function base64urlを文字に(s) {
   return new TextDecoder().decode(base64urlをバイトに(s));
+}
+
+/** 呼んだ記録（chukei_calls）を残す日数。遅さを調べるためだけなので短く */
+export const 呼んだ記録の日数 = 90;
+
+/**
+ * Gemini を 1 回呼んだ記録を残す。人を特定するもの（uid・中身）は置かない。
+ * 何の模型で答えたか・最初の答えまで何ミリ秒か・何回送ったか（鍵や模型の切り替え）・混みの待ちの回数。
+ */
+export async function 呼んだ記録を残す(env, 記録, 今 = Date.now()) {
+  const 種 = /:streamGenerateContent$/.test(記録.道) ? '流し読み' : '生成';
+  const 頼んだ模型 = (String(記録.道).match(/models\/([^/:]+):/) || [])[1] || '';
+  await env.KAIZEN_DB.prepare(
+    'INSERT INTO chukei_calls (at, project, kind, requested, used, status, first_ms, sends, busy) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)'
+  )
+    .bind(今, String(記録.企画 || ''), 種, 頼んだ模型, 記録.使った模型 || '', 記録.状態, 記録.先頭まで, 記録.送った回数 || 0, 記録.混んだ || 0)
+    .run();
+}
+
+export async function 古い呼んだ記録を消す(env, 今 = Date.now()) {
+  if (!env.KAIZEN_DB) return 0;
+  const 結果 = await env.KAIZEN_DB.prepare('DELETE FROM chukei_calls WHERE at < ?1').bind(今 - 呼んだ記録の日数 * 86400000).run();
+  return (結果 && 結果.meta && 結果.meta.changes) || 0;
 }
