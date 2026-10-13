@@ -328,7 +328,7 @@ export async function 上流へ送る(注文) {
         返事 = await 送る(今のURL, {
           method,
           headers: 頭,
-          body: 順 > 0 ? (切り替えの体[順] ??= 急ぐ一言を足す(考えない体(体, 候補[順].道), 候補[順].模型, 候補[順].道)) : 体,
+          body: 順 > 0 ? (切り替えの体[順] ??= チャットの考えを絞る(考えない体(体, 候補[順].道), 候補[順].模型, 候補[順].道)) : 体,
         });
       } catch (e) {
         return { つながらない: true, 訳: String((e && e.message) || e) };
@@ -356,26 +356,26 @@ export async function 上流へ送る(注文) {
   return { 返事, 使った, 使った模型, 混んだ, 送った回数 };
 }
 
-/** 考える時間が長い模型。切り替えでここへ送る AI チャットには、急ぐよう一言足す（2026-10-13 に運用者の指示で試す） */
-export const 急がせる模型 = ['gemini-3.8-flash'];
-export const 急ぐ一言 = '10秒以内に回答してください。';
+/**
+ * 考える量が既定だと遅い模型。切り替えでここへ送る AI チャットは、考える量を チャットの考える量 に絞る。
+ * 2026-10-13 の深夜に 3.8 を直接測った：既定 125 秒で打ち切り・47・17・57 秒、0 は 73・76・19 秒、1024 は 24・5・16 秒。
+ * 「10秒以内に回答してください」と指示に足す案は 17・57 秒で当てにならなかったのでやめた
+ */
+export const 考えを絞る模型 = ['gemini-3.8-flash', 'gemini-3.7-flash'];
+export const チャットの考える量 = 1024;
 
 /**
- * AI チャット（流し読みで systemInstruction のあるもの）を 急がせる模型 へ送るとき、systemInstruction の
- * 先頭に 急ぐ一言 を差し込む。JSON は読み直さず文字の差し込みだけ（考えない体 と同じ理由）。それ以外はそのまま返す。
+ * AI チャット（流し読みで systemInstruction のあるもの）を 考えを絞る模型 へ送るとき、考える量を絞る。
+ * 依頼が自分で thinkingConfig を持っているときと、それ以外の依頼はそのまま返す。
  * @param {ArrayBuffer|Uint8Array|undefined} 体
  * @param {string} 模型
  * @param {string} 道
  */
-export function 急ぐ一言を足す(体, 模型, 道) {
-  if (!体 || !体.byteLength || !急がせる模型.includes(模型) || !/:streamGenerateContent$/.test(道)) return 体;
+export function チャットの考えを絞る(体, 模型, 道) {
+  if (!体 || !体.byteLength || !考えを絞る模型.includes(模型) || !/:streamGenerateContent$/.test(道)) return 体;
   const 文 = new TextDecoder().decode(体);
-  const i = 文.indexOf('"systemInstruction":');
-  if (i < 0) return 体;
-  const 部品 = 文.indexOf('"parts":[', i);
-  if (部品 < 0) return 体;
-  const 差す所 = 部品 + '"parts":['.length;
-  return new TextEncoder().encode(文.slice(0, 差す所) + JSON.stringify({ text: 急ぐ一言 }) + ',' + 文.slice(差す所));
+  if (文.indexOf('"systemInstruction":') < 0 || 文.indexOf('"thinkingConfig":') >= 0) return 体;
+  return 考える量を差す(体, 文, チャットの考える量);
 }
 
 /**
@@ -399,7 +399,13 @@ export function 考えない体(体, 道) {
     if (文.indexOf('"tools":') >= 0 || 文.indexOf('"systemInstruction":') >= 0 || 文.indexOf('"responseMimeType":"application/json"') < 0) return 体;
   }
   if (文.charAt(文.length - 1) !== '}' && 文.trimEnd().charAt(文.trimEnd().length - 1) !== '}') return 体;
-  const 差す = '"thinkingConfig":{"thinkingBudget":0}';
+  return 考える量を差す(体, 文, 0);
+}
+
+/** 体の generationConfig に thinkingConfig（考える量）を文字で差し込む。差せない形ならそのまま返す */
+function 考える量を差す(体, 文, 量) {
+  if (文.charAt(文.length - 1) !== '}' && 文.trimEnd().charAt(文.trimEnd().length - 1) !== '}') return 体;
+  const 差す = `"thinkingConfig":{"thinkingBudget":${量}}`;
   const i = 文.indexOf('"generationConfig":{');
   let 直した;
   if (i >= 0) {
