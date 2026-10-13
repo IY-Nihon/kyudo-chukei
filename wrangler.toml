@@ -19,9 +19,9 @@ ALLOWED_ORIGINS = "https://kyudoscoremanager.web.app,https://kyudoscoremanager.f
 # 呼んでよい模型
 ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash"
 # 模型の切り替えの並び。使う模型が混んでいる・上限・無いときは、要求した模型のあと、この並びの残りを順に試す。
-# MODEL_CHAIN … 写真の読み取りなど（3.8・3.7 は写真の読み取りが 100 秒を超えて 15 枚中 2〜3 枚しか通らなかったので入れない。3.5 は考えない設定で 11/15）
+# MODEL_CHAIN … 写真の読み取りなど。切り替え先は考える量 0（考えない体）。2026-10-13 16時から 3.6・3.5 が 503 のまま読めなくなったので 3.8・3.7 を足した（3.8 は量 0 で 6〜77 秒、18 回中 17 回正しく読めた）
 # MODEL_CHAIN_STREAM … AI チャット。頼んだ模型に関わらず先頭（3.8）から試す（2026-10-13。3.8 は考える量 1024 で平均 5.5 秒）
-MODEL_CHAIN = "gemini-3.6-flash,gemini-3.5-flash"
+MODEL_CHAIN = "gemini-3.6-flash,gemini-3.8-flash,gemini-3.7-flash,gemini-3.5-flash"
 MODEL_CHAIN_STREAM = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash"
 
 # 人ごとの回数の上限（1分あたり）。鍵を抜かれなくても、1人が回し続けるのを止める
