@@ -60,7 +60,7 @@ test('呼んだ記録：頼んだ模型・答えた模型・時間を 1 行で�
   const env = { KAIZEN_DB: { prepare: (sql) => ({ bind: (...v) => ({ run: async () => { 置いた = { sql, v }; } }) }) } };
   await 呼んだ記録を残す(env, { 企画: 'kyudoscoremanager', 道: 流し('gemini-3.6-flash'), 使った模型: 'gemini-3.8-flash', 状態: 200, 先頭まで: 1234, 送った回数: 8, 混んだ: 0 }, 5);
   assert.match(置いた.sql, /INSERT INTO chukei_calls/);
-  assert.deepStrictEqual(置いた.v, [5, 'kyudoscoremanager', '流し読み', 'gemini-3.6-flash', 'gemini-3.8-flash', 200, 1234, 8, 0]);
+  assert.deepStrictEqual(置いた.v, [5, 'kyudoscoremanager', '流し読み', 'gemini-3.6-flash', 'gemini-3.8-flash', 200, 1234, 8, 0, 0]);
 });
 
 test('チャットは頼んだ模型に関わらず 3.8 から順に、写真の読み取りは頼んだ 3.6 から', () => {
