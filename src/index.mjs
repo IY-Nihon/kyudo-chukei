@@ -60,6 +60,15 @@ export function 枠切れを忘れる() {
 /** 503（混んでいる）のとき、送り直す前に待つ長さ（ms）。並びの数だけ送り直す */
 export const 混みの待ち = [2000, 4000, 8000];
 
+/**
+ * 最初の答えを待つ長さの上限（ms）。次の模型があるときだけ、これを過ぎたら打ち切って次へ移る。
+ * 2026-10-13：3.6 が混んで 3.8 に回り、その 3.8 が答えないまま 130〜150 秒たって Cloudflare に切られた（524）。
+ * AI チャット（流し読み）は最初の塊まで、写真の読み取りは答え全部まで（3.6 で 20〜35 秒、遅い日で 60 秒）
+ */
+export const 待ちの上限 = { 流し読み: 25000, 生成: 45000 };
+/** 全部で待てる長さ。Cloudflare は 100 秒、答えの頭が来ないと切る。最後の模型はこの残りを全部使う */
+export const 全体の締め切り = 95000;
+
 export default {
   async fetch(request, env, ctx) {
     const 出どころ = request.headers.get('Origin') || '';
@@ -155,7 +164,7 @@ export default {
     // 運用者は wrangler tail で見る
     // 答えの最初の塊が来るまでの時間（流し読みは先頭を見てから返すので、文字が出始めるまでの時間）
     const 先頭まで = Date.now() - 送り始め;
-    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${使った模型 || '-'} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''} ${先頭まで}ms 送った${送り.送った回数}`);
+    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${使った模型 || '-'} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''} ${先頭まで}ms 送った${送り.送った回数}${送り.遅かった ? ` 打ち切り${送り.遅かった}` : ''}`);
     // 遅いときにどこで詰まったか後から見られるよう、1 回ごとに残す（待たない。書けなくても答えは返す）
     if (env.KAIZEN_DB && ctx && ctx.waitUntil) {
       ctx.waitUntil(
@@ -167,6 +176,7 @@ export default {
           先頭まで,
           送った回数: 送り.送った回数,
           混んだ,
+          遅かった: 送り.遅かった || 0,
         }).catch((e) => console.warn('呼んだ記録を残せませんでした', e))
       );
     }
@@ -316,6 +326,12 @@ export async function 上流へ送る(注文) {
   let 使った模型 = '';
   let 混んだ = 0;
   let 送った回数 = 0;
+  let 遅かった = 0;
+  const 始め = (注文.今 || Date.now)();
+  const 今 = 注文.今 || Date.now;
+  const 流し読みか = 候補.length && /:streamGenerateContent$/.test(候補[0].道);
+  const 一つの上限 = 注文.待ちの上限 ?? (流し読みか ? 待ちの上限.流し読み : 待ちの上限.生成);
+  const 締め切り = 始め + (注文.全体の締め切り ?? 全体の締め切り);
   const 切り替えの体 = [];
   for (let 順 = 0; 順 < 候補.length; 順++) {
     const 最後の模型 = 順 === 候補.length - 1;
@@ -331,10 +347,26 @@ export async function 上流へ送る(注文) {
       頭.set('x-goog-api-key', 鍵たち[番]);
       if (種) 頭.set('Content-Type', 種);
       if (依頼者) 頭.set('x-goog-api-client', 依頼者);
+      // 次の模型があるなら、上限を過ぎたら打ち切る（最後の模型は締め切りまで待つ）
+      const 残り = 締め切り - 今();
+      const 上限 = 最後の模型 ? null : Math.min(一つの上限, 残り - 5000);
+      if (上限 !== null && 上限 <= 0) {
+        次の模型へ = true;
+        break;
+      }
+      const 止め = 上限 !== null && typeof AbortController !== 'undefined' ? new AbortController() : null;
+      let 打ち切った = false;
+      const 時計 = 止め
+        ? setTimeout(() => {
+            打ち切った = true;
+            止め.abort();
+          }, 上限)
+        : null;
       try {
         送った回数++;
         返事 = await 送る(今のURL, {
           method,
+          ...(止め ? { signal: 止め.signal } : {}),
           headers: 頭,
           body: (切り替えの体[順] ??=
             順 > 0
@@ -342,10 +374,23 @@ export async function 上流へ送る(注文) {
               : チャットの考えを絞る(体, 候補[順].模型, 候補[順].道)),
         });
       } catch (e) {
+        if (時計) clearTimeout(時計);
+        if (打ち切った) {
+          遅かった++;
+          次の模型へ = true;
+          break;
+        }
         return { つながらない: true, 訳: String((e && e.message) || e) };
       }
       使った = 番;
       返事 = await 流れの先頭を見る(返事, 候補[順].道);
+      if (時計) clearTimeout(時計);
+      if (打ち切った) {
+        遅かった++;
+        次の模型へ = true;
+        if (返事 && 返事.body) await 返事.body.cancel().catch(() => {});
+        break;
+      }
       const 訳 = await 送り直す訳(返事);
       if (訳 === '鍵' && 鍵を替えた < 鍵たち.length - 1) 鍵を替えた++;
       // 混んでいる：次の模型があれば待たずに移る。最後の模型なら、待って送り直す
@@ -364,7 +409,7 @@ export async function 上流へ送る(注文) {
     }
     if (!次の模型へ) break;
   }
-  return { 返事, 使った, 使った模型, 混んだ, 送った回数 };
+  return { 返事, 使った, 使った模型, 混んだ, 送った回数, 遅かった };
 }
 
 /**
@@ -584,9 +629,9 @@ export async function 呼んだ記録を残す(env, 記録, 今 = Date.now()) {
   const 種 = /:streamGenerateContent$/.test(記録.道) ? '流し読み' : '生成';
   const 頼んだ模型 = (String(記録.道).match(/models\/([^/:]+):/) || [])[1] || '';
   await env.KAIZEN_DB.prepare(
-    'INSERT INTO chukei_calls (at, project, kind, requested, used, status, first_ms, sends, busy) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9)'
+    'INSERT INTO chukei_calls (at, project, kind, requested, used, status, first_ms, sends, busy, slow) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)'
   )
-    .bind(今, String(記録.企画 || ''), 種, 頼んだ模型, 記録.使った模型 || '', 記録.状態, 記録.先頭まで, 記録.送った回数 || 0, 記録.混んだ || 0)
+    .bind(今, String(記録.企画 || ''), 種, 頼んだ模型, 記録.使った模型 || '', 記録.状態, 記録.先頭まで, 記録.送った回数 || 0, 記録.混んだ || 0, 記録.遅かった || 0)
     .run();
 }
 
