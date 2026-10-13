@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert';
-import { チャットの考えを絞る, チャットの考える量, 呼んだ記録を残す, 上流へ送る } from '../src/index.mjs';
+import { 候補の模型たち, チャットの考えを絞る, チャットの考える量, 呼んだ記録を残す, 上流へ送る } from '../src/index.mjs';
 
 const 文に = (体) => new TextDecoder().decode(体);
 const 体に = (o) => new TextEncoder().encode(JSON.stringify(o));
@@ -17,13 +17,14 @@ test('3.8 の流し読みのチャットは、考える量が入り、ほかは�
   assert.deepStrictEqual(直した.generationConfig, { thinkingConfig: { thinkingBudget: チャットの考える量 } });
   assert.deepStrictEqual(直した.contents, チャット.contents);
   assert.deepStrictEqual(直した.systemInstruction, チャット.systemInstruction);
-  const 設定つき = JSON.parse(文に(チャットの考えを絞る(体に({ ...チャット, generationConfig: { temperature: 1 } }), 'gemini-3.7-flash', 流し('gemini-3.7-flash'))));
+  const 設定つき = JSON.parse(文に(チャットの考えを絞る(体に({ ...チャット, generationConfig: { temperature: 1 } }), 'gemini-3.8-flash', 流し('gemini-3.8-flash'))));
   assert.deepStrictEqual(設定つき.generationConfig, { thinkingConfig: { thinkingBudget: チャットの考える量 }, temperature: 1 });
 });
 
-test('3.6・写真の読み取り（指示なし）・生成の道・自分で考える量を持つ依頼はそのまま', () => {
+test('3.7・3.6・写真の読み取り（指示なし）・生成の道・自分で考える量を持つ依頼はそのまま', () => {
   const 体 = 体に(チャット);
   assert.strictEqual(チャットの考えを絞る(体, 'gemini-3.6-flash', 流し('gemini-3.6-flash')), 体);
+  assert.strictEqual(チャットの考えを絞る(体, 'gemini-3.7-flash', 流し('gemini-3.7-flash')), 体);
   assert.strictEqual(チャットの考えを絞る(体, 'gemini-3.8-flash', '/v1beta/models/gemini-3.8-flash:generateContent'), 体);
   const 写真 = 体に({ contents: [{ parts: [{ text: '読んで' }] }] });
   assert.strictEqual(チャットの考えを絞る(写真, 'gemini-3.8-flash', 流し('gemini-3.8-flash')), 写真);
@@ -60,4 +61,21 @@ test('呼んだ記録：頼んだ模型・答えた模型・時間を 1 行で�
   await 呼んだ記録を残す(env, { 企画: 'kyudoscoremanager', 道: 流し('gemini-3.6-flash'), 使った模型: 'gemini-3.8-flash', 状態: 200, 先頭まで: 1234, 送った回数: 8, 混んだ: 0 }, 5);
   assert.match(置いた.sql, /INSERT INTO chukei_calls/);
   assert.deepStrictEqual(置いた.v, [5, 'kyudoscoremanager', '流し読み', 'gemini-3.6-flash', 'gemini-3.8-flash', 200, 1234, 8, 0]);
+});
+
+test('チャットは頼んだ模型に関わらず 3.8 から順に、写真の読み取りは頼んだ 3.6 から', () => {
+  const 連鎖 = 'gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash';
+  assert.deepStrictEqual(候補の模型たち(流し('gemini-3.6-flash'), 連鎖, true).map((c) => c.模型), ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash']);
+  assert.deepStrictEqual(候補の模型たち(流し('gemini-3.6-flash'), 連鎖, false).map((c) => c.模型)[0], 'gemini-3.6-flash');
+});
+
+test('上流へ送る：先頭の 3.8 にも考える量が入る', async () => {
+  const 送った = [];
+  await 上流へ送る({
+    候補: ['gemini-3.8-flash', 'gemini-3.7-flash'].map((模型) => ({ 模型, 道: 流し(模型) })),
+    鍵たち: ['a'], 始めの鍵: 0, search: '', method: 'POST', 体: 体に(チャット),
+    fetch: async (url, 頼み) => { 送った.push(文に(頼み.body)); return new Response('data: {}\n\n', { status: 200 }); },
+    待つ: async () => {},
+  });
+  assert.ok(送った[0].includes('"thinkingBudget":' + チャットの考える量));
 });

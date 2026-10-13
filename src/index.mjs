@@ -126,9 +126,17 @@ export default {
     }
     // 上流へ。模型の切り替え・鍵の回し持ち・混んだときの待ちは 上流へ送る（検査できるよう外に出してある）
     const 送り始め = Date.now();
+    // AI チャット（流し読みで systemInstruction のあるもの）は、連鎖の先頭の新しい模型から試す。
+    // 写真の読み取りは流し読みでも頼んだ模型（3.6）から（3.8・3.7 は写真で 100 秒を超えた）
+    const チャットか =
+      /:streamGenerateContent$/.test(道) && !!体 && new TextDecoder().decode(体.slice(0, 体.byteLength)).indexOf('"systemInstruction":') >= 0;
     const 送り = await 上流へ送る({
       // 試験で「その模型そのものの答え」を見たいときは、X-Kyudo-No-Chain: 1 を付けると切り替えない
-      候補: 候補の模型たち(道, request.headers.get('X-Kyudo-No-Chain') ? '' : /:streamGenerateContent$/.test(道) ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN),
+      候補: 候補の模型たち(
+        道,
+        request.headers.get('X-Kyudo-No-Chain') ? '' : チャットか ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN,
+        チャットか
+      ),
       鍵たち,
       始めの鍵: 次の鍵++ % 鍵たち.length,
       search: url.search || '',
@@ -328,7 +336,10 @@ export async function 上流へ送る(注文) {
         返事 = await 送る(今のURL, {
           method,
           headers: 頭,
-          body: 順 > 0 ? (切り替えの体[順] ??= チャットの考えを絞る(考えない体(体, 候補[順].道), 候補[順].模型, 候補[順].道)) : 体,
+          body: (切り替えの体[順] ??=
+            順 > 0
+              ? チャットの考えを絞る(考えない体(体, 候補[順].道), 候補[順].模型, 候補[順].道)
+              : チャットの考えを絞る(体, 候補[順].模型, 候補[順].道)),
         });
       } catch (e) {
         return { つながらない: true, 訳: String((e && e.message) || e) };
@@ -358,10 +369,10 @@ export async function 上流へ送る(注文) {
 
 /**
  * 考える量が既定だと遅い模型。切り替えでここへ送る AI チャットは、考える量を チャットの考える量 に絞る。
- * 2026-10-13 の深夜に 3.8 を直接測った：既定 125 秒で打ち切り・47・17・57 秒、0 は 73・76・19 秒、1024 は 24・5・16 秒。
+ * 2026-10-13 の深夜に測った（3.7 は量で差が無かったので既定のまま）。3.8：既定 125 秒で打ち切り・47・17・57 秒、0 は 73・76・19 秒、1024 は 24・5・16 秒。
  * 「10秒以内に回答してください」と指示に足す案は 17・57 秒で当てにならなかったのでやめた
  */
-export const 考えを絞る模型 = ['gemini-3.8-flash', 'gemini-3.7-flash'];
+export const 考えを絞る模型 = ['gemini-3.8-flash'];
 export const チャットの考える量 = 1024;
 
 /**
@@ -494,11 +505,13 @@ export function 見出しを整える(元) {
  * @param {string|undefined} 連鎖
  * @returns {{模型:string, 道:string}[]}
  */
-export function 候補の模型たち(道, 連鎖) {
+export function 候補の模型たち(道, 連鎖, 頭から = false) {
   const m = String(道).match(/^(\/(?:v1beta|v1)\/models\/)([^/:]+)(:(?:generateContent|streamGenerateContent))$/);
   if (!m) return [{ 模型: '', 道 }];
   const 並び = String(連鎖 || '').split(',').map((x) => x.trim()).filter(Boolean);
   if (!並び.includes(m[2])) return [{ 模型: m[2], 道 }];
+  // 頭から：頼んだ模型に関わらず、連鎖の先頭（新しい模型）から試す。AI チャットはこれ（2026-10-13 に運用者が 3.8 から順にと決めた）
+  if (頭から) return 並び.map((模型) => ({ 模型, 道: m[1] + 模型 + m[3] }));
   return [m[2], ...並び.filter((x) => x !== m[2])].map((模型) => ({ 模型, 道: m[1] + 模型 + m[3] }));
 }
 
