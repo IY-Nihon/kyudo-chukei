@@ -12,9 +12,16 @@ Cloudflare Workers で動く小さな中継。アプリ（Expo Web）に Gemini 
   始め（回し持ち）、429／403／無効な鍵なら次の鍵で同じ体を送り直す。どの鍵で答えたかは
   `npx wrangler tail` の「鍵 3/7 200」で見る（返事や `/health` には載せない。載せると鍵の数と
   回し方が外から読め、上限まで使い切るのに何回要るかの見当を与える。2026-09-19 に外した）
-- 503（模型が混んでいる）は鍵のせいではないので、2・4・8 秒待って 3 回まで送り直す（鍵も次に替える）。
-  それでもだめなら 503 をそのまま返し、アプリが 8 秒待ってもう一度呼び、だめなら「混み合っています」と出す。
-  tail には「鍵 3/7 200 混み1」
+- 模型は順に切り替える（`wrangler.toml` の `MODEL_CHAIN`＝写真の読み取りなど、`MODEL_CHAIN_STREAM`＝AI チャット）。
+  - 503（模型が混んでいる）は鍵のせいではないので、次の模型があれば待たずに移る。最後の模型だけ 2・4・8 秒待って
+    3 回まで送り直す。それでもだめなら 503 をそのまま返し、アプリが「混み合っています」と出す
+  - どの鍵も 429、または 404 なら次の模型へ。429 で使い切った模型は 5 分飛ばす（最後の模型は飛ばさない）
+  - 答えの頭が来ない模型は打ち切って次へ（流し読み 25 秒・生成 45 秒）。全体は 95 秒に収め（Cloudflare は
+    100 秒で切る）、最後の模型は残りを全部待つ（2026-10-15）
+  - 切り替え先の模型には考える量 0 を差す（`考えない体`）。AI チャットは 3.8 だけ考える量 1024（`チャットの考えを絞る`）
+  - tail には「鍵 3/7 gemini-3.8-flash 200 混み1 1234ms 送った2 打ち切り1」
+- 呼ぶたびに D1 の `chukei_calls` に 1 行残す（企画・種類・頼んだ模型・使った模型・状態・答えの頭までの ms・
+  送った回数・混んだ回数・打ち切った回数）。遅さはここで見る（下の「読むとき」）
 
 ## 手順
 
@@ -70,7 +77,12 @@ npx wrangler deploy
 npx wrangler d1 execute kyudo-kaizen --remote --command "SELECT kind, count(*) FROM kaizen_logs GROUP BY kind"
 npx wrangler d1 execute kyudo-kaizen --remote --command "SELECT id, created_at, group_id, content FROM kaizen_logs WHERE kind='写真読み取り' ORDER BY created_at DESC LIMIT 20"
 npx wrangler kv key get --binding KAIZEN_PHOTOS --remote "photo/{id}/0" > 写真.jpg
+# 中継の遅さ（本番だけ。project が -stg の行は検証環境の試し）
+npx wrangler d1 execute kyudo-kaizen --remote --command "SELECT kind, used, count(*), round(avg(first_ms)), max(first_ms), round(avg(sends),1) FROM chukei_calls WHERE project NOT LIKE '%-stg' GROUP BY kind, used"
 ```
+
+`chukei_calls` は migrations の 0002（表）と 0003（`slow` の列）で作る。列を足す変更は、アプリの中継より先に
+`npx wrangler d1 migrations apply kyudo-kaizen --remote` を当ててから `npx wrangler deploy` する。
 
 名前の入った中身なので、倉庫や他の AI には入れない。消してほしいと言われたら `uid` か `group_id` で探して消す。
 手元で試すときは、番号を仮に入れた設定で `npx wrangler d1 migrations apply kyudo-kaizen --local` と
