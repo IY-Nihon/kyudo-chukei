@@ -74,3 +74,30 @@ test('締め切りが近いと、次の模型があっても待ちを縮め、�
   assert.deepStrictEqual(送った.map((u) => u.match(/gemini-[\d.]+-flash/)[0]), ['gemini-3.5-flash']);
   assert.strictEqual(結果.使った模型, 'gemini-3.5-flash');
 });
+
+test('打ち切った模型は、しばらく後ろへ回す（次の頼みでは最初から次の模型へ）', async () => {
+  const { 枠切れを忘れる } = await import('../src/index.mjs');
+  枠切れを忘れる();
+  const 送った = [];
+  const 注文 = () => ({
+    候補: ['gemini-3.8-flash', 'gemini-3.6-flash'].map((模型) => ({ 模型, 道: 生成(模型) })),
+    鍵たち: ['a'],
+    始めの鍵: 0,
+    search: '',
+    method: 'POST',
+    待ちの上限: 30,
+    fetch: (url, 頼み) => {
+      送った.push(url);
+      return url.includes('3.8') ? 黙る(url, 頼み) : Promise.resolve(new Response('{}', { status: 200 }));
+    },
+    待つ: async () => {},
+  });
+  const 一回目 = await 上流へ送る(注文());
+  assert.strictEqual(一回目.遅かった, 1);
+  送った.length = 0;
+  const 二回目 = await 上流へ送る(注文());
+  assert.strictEqual(二回目.使った模型, 'gemini-3.6-flash');
+  assert.strictEqual(二回目.遅かった, 0);
+  assert.deepStrictEqual(送った.map((u) => u.includes('3.6')), [true], '3.8 を待たずに 3.6 へ');
+  枠切れを忘れる();
+});
