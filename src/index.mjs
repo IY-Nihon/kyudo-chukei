@@ -26,13 +26,12 @@
  *   呼ぶたびに次の鍵から始め（回し持ち）、その鍵が 429（上限）や 403（止められた）
  *   なら次の鍵で同じ体をもう一度送る。全部だめなら最後の返事をそのまま返す。
  *
- * ■ 混んでいるとき
- *   503（模型が混んでいる。"This model is currently experiencing high demand"）は
- *   鍵のせいではないが、山は短い。2・4・8 秒待って 3 回まで送り直す（鍵も次のものに
- *   替える。企画ごとに枠が違うことがある）。それでもだめなら 503 をそのまま返し、アプリが
- *   もう少し待ってもう一度呼ぶ。1.5・3 秒の 2 回では足りず、配信した日にまた 503 が
- *   使う人まで届いた（2026-09-20。小さな文の依頼は同じ時刻に 200 だったので、写真の重い
- *   依頼のほうが落とされやすい）
+ * ■ 混んでいるとき・遅いとき（模型の切り替え。上流へ送る）
+ *   模型ごとに枠も混み具合も別なので、混んでいる（503）・どの鍵も上限（429）・答えが遅い（待ちの上限）
+ *   ときは、連鎖（MODEL_CHAIN・MODEL_CHAIN_STREAM）の次の模型へ同じ体を送る。
+ *   最後の模型が 503 のときだけ、2・4・8 秒待って 3 回まで送り直す（鍵も次のものに替える）。
+ *   それでもだめなら 503 をそのまま返し、アプリがもう少し待ってもう一度呼ぶ。
+ *   （1.5・3 秒の 2 回では足りず、配信した日にまた 503 が使う人まで届いた。2026-09-20）
  */
 
 import { 保存を受ける, 古い保存を消す } from './hozon.mjs';
@@ -150,7 +149,7 @@ export default {
     // AI チャット（流し読みで systemInstruction のあるもの）は、連鎖の先頭の新しい模型から試す。
     // 写真の読み取りは流し読みでも頼んだ模型（3.6）から（3.8・3.7 は写真で 100 秒を超えた）
     const チャットか =
-      /:streamGenerateContent$/.test(道) && !!体 && new TextDecoder().decode(体.slice(0, 体.byteLength)).indexOf('"systemInstruction":') >= 0;
+      /:streamGenerateContent$/.test(道) && !!体 && new TextDecoder().decode(体).indexOf('"systemInstruction":') >= 0;
     const 送り = await 上流へ送る({
       // 試験で「その模型そのものの答え」を見たいときは、X-Kyudo-No-Chain: 1 を付けると切り替えない
       候補: 候補の模型たち(
@@ -272,7 +271,8 @@ export async function 回数に収まるか(本人, 数え) {
   try {
     const { success } = await 数え.limit({ key: 本人.sub });
     return !!success;
-  } catch (e) {
+  } catch {
+    // 上限の仕組みが転んでも、Gemini の中継は止めない
     return true;
   }
 }
@@ -339,8 +339,8 @@ export async function 上流へ送る(注文) {
   let 混んだ = 0;
   let 送った回数 = 0;
   let 遅かった = 0;
-  const 始め = (注文.今 || Date.now)();
   const 今 = 注文.今 || Date.now;
+  const 始め = 今();
   const 流し読みか = 候補.length && /:streamGenerateContent$/.test(候補[0].道);
   const 一つの上限 = 注文.待ちの上限 ?? (流し読みか ? 待ちの上限.流し読み : 待ちの上限.生成);
   const 締め切り = 始め + (注文.全体の締め切り ?? 全体の締め切り);
@@ -509,7 +509,7 @@ export async function 流れの先頭を見る(返事, 道) {
   let 先頭;
   try {
     先頭 = await 読む.read();
-  } catch (e) {
+  } catch {
     return new Response('', { status: 502 });
   }
   if (先頭.done || !先頭.value) return new Response(new Uint8Array(0), { status: 返事.status, headers: 見出しを整える(返事.headers) });
@@ -526,7 +526,9 @@ export async function 流れの先頭を見る(返事, 道) {
     try {
       const c = JSON.parse(全部).error.code;
       if (Number.isInteger(c) && c >= 400 && c < 600) 番号 = c;
-    } catch (e) {}
+    } catch {
+      /* 読めなければ 502 のまま */
+    }
     return new Response(全部, { status: 番号, headers: { 'Content-Type': 'application/json' } });
   }
   const 続き = new ReadableStream({
@@ -610,16 +612,15 @@ async function 公開鍵を取る(kid) {
     const 秒 = m ? Number(m[1]) : 3600;
     鍵の控え = { 鍵たち: j.keys || [], 期限: Date.now() + Math.max(60, Math.min(秒, 86400)) * 1000 };
   }
-  const jwk = 鍵の控え.鍵たち.find((k) => k.kid === kid);
+  let jwk = 鍵の控え.鍵たち.find((k) => k.kid === kid);
   if (!jwk) {
     // 鍵が入れ替わった直後は控えが古い。一度だけ取り直す
     鍵の控え = { 鍵たち: null, 期限: 0 };
     const r = await fetch(公開鍵の場所);
     const j = await r.json();
     鍵の控え = { 鍵たち: j.keys || [], 期限: Date.now() + 3600 * 1000 };
-    const 再 = 鍵の控え.鍵たち.find((k) => k.kid === kid);
-    if (!再) throw new Error('公開鍵が見つからない');
-    return crypto.subtle.importKey('jwk', 再, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+    jwk = 鍵の控え.鍵たち.find((k) => k.kid === kid);
+    if (!jwk) throw new Error('公開鍵が見つからない');
   }
   return crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
 }
