@@ -259,3 +259,76 @@ test('全部の鍵が 429 の模型は、控えの間は飛ばして次の模型
 test('連鎖の指定を空にすれば、切り替えない（試験で、その模型そのものの答えを見る）', () => {
   assert.strictEqual(候補の模型たち(生成の道('gemini-3.8-flash'), '').length, 1);
 });
+
+import { 直近に答えた模型, 先頭に回す, 答えた模型を見る長さ } from '../src/index.mjs';
+
+/** chukei_calls を 1 つの配列で持つ偽の D1（prepare → bind → first だけ） */
+const 偽のD1 = (行たち, 落ちる = false) => ({
+  KAIZEN_DB: {
+    prepare: (sql) => ({
+      bind: (種, 以後) => ({
+        first: async () => {
+          if (落ちる) throw new Error('no such table');
+          assert.ok(/ORDER BY at DESC LIMIT 1/.test(sql));
+          const 当たり = 行たち
+            .filter((r) => r.kind === 種 && r.status === 200 && r.used && r.at > 以後)
+            .sort((a, b) => b.at - a.at);
+          return 当たり[0] || null;
+        },
+      }),
+    }),
+  },
+});
+
+test('直近に答えた模型：種ごとに、見る長さの中で最後に 200 で答えた模型。無い・読めないときは空', async () => {
+  const 今 = 1_800_000_000_000;
+  const env = 偽のD1([
+    { at: 今 - 60_000, kind: '流し読み', status: 200, used: 'gemini-3.6-flash' },
+    { at: 今 - 30_000, kind: '流し読み', status: 503, used: 'gemini-3.8-flash' },
+    { at: 今 - 10_000, kind: '生成', status: 200, used: 'gemini-3.5-flash' },
+    { at: 今 - 答えた模型を見る長さ - 1, kind: '生成', status: 200, used: 'gemini-3.7-flash' },
+  ]);
+  assert.strictEqual(await 直近に答えた模型(env, '流し読み', 今), 'gemini-3.6-flash');
+  assert.strictEqual(await 直近に答えた模型(env, '生成', 今), 'gemini-3.5-flash');
+  assert.strictEqual(await 直近に答えた模型(偽のD1([]), '生成', 今), '');
+  assert.strictEqual(await 直近に答えた模型(偽のD1([], true), '生成', 今), '', '表が無くても止めない');
+  assert.strictEqual(await 直近に答えた模型({}, '生成', 今), '', 'D1 の結び付けが無い');
+});
+
+test('先頭に回す：その模型だけを先頭へ。ほかの並びは変えない。候補に無い・もう先頭ならそのまま', () => {
+  const 候補 = 候補の模型たち(生成の道('gemini-3.6-flash'), 'gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash');
+  assert.deepStrictEqual(
+    先頭に回す(候補, 'gemini-3.8-flash').map((c) => c.模型),
+    ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.7-flash']
+  );
+  assert.strictEqual(先頭に回す(候補, 'gemini-3.6-flash'), 候補);
+  assert.strictEqual(先頭に回す(候補, ''), 候補);
+  assert.strictEqual(先頭に回す(候補, 'gemini-9-flash'), 候補);
+});
+
+test('先頭に回した模型が頼んだ模型でなければ、その模型にも考えない体を送る。頼んだ模型には元の体', async () => {
+  const 体たち = {};
+  const 候補 = 先頭に回す(
+    候補の模型たち('/v1beta/models/gemini-3.6-flash:generateContent', 'gemini-3.6-flash,gemini-3.5-flash'),
+    'gemini-3.5-flash'
+  );
+  const 結果 = await 上流へ送る({
+    候補,
+    頼んだ模型: 'gemini-3.6-flash',
+    鍵たち: ['K0'],
+    始めの鍵: 0,
+    search: '',
+    method: 'POST',
+    体: new TextEncoder().encode('{"contents":[]}'),
+    種: 'application/json',
+    fetch: async (url, init) => {
+      const 模型 = url.match(/models\/([^:]+):/)[1];
+      体たち[模型] = new TextDecoder().decode(init.body);
+      return { status: 模型 === 'gemini-3.5-flash' ? 503 : 200, clone: () => ({ text: async () => '' }), body: null };
+    },
+    待つ: async () => {},
+  });
+  assert.strictEqual(結果.使った模型, 'gemini-3.6-flash');
+  assert.ok(体たち['gemini-3.5-flash'].includes('"thinkingBudget":0'), '先頭に回した 3.5 は考えない体');
+  assert.ok(!体たち['gemini-3.6-flash'].includes('thinkingBudget'), '頼んだ 3.6 は元の体');
+});

@@ -150,13 +150,15 @@ export default {
     // 写真の読み取りは流し読みでも頼んだ模型（3.6）から（3.8・3.7 は写真で 100 秒を超えた）
     const チャットか =
       /:streamGenerateContent$/.test(道) && !!体 && new TextDecoder().decode(体).indexOf('"systemInstruction":') >= 0;
+    // 試験で「その模型そのものの答え」を見たいときは、X-Kyudo-No-Chain: 1 を付けると切り替えない
+    const 切り替えない = !!request.headers.get('X-Kyudo-No-Chain');
+    let 候補 = 候補の模型たち(道, 切り替えない ? '' : チャットか ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN, チャットか);
+    // 直近に答えた模型から試す（答えない模型を毎回待たない。答えた模型を見る長さ の説明）
+    if (候補.length > 1)
+      候補 = 先頭に回す(候補, await 直近に答えた模型(env, /:streamGenerateContent$/.test(道) ? '流し読み' : '生成'));
     const 送り = await 上流へ送る({
-      // 試験で「その模型そのものの答え」を見たいときは、X-Kyudo-No-Chain: 1 を付けると切り替えない
-      候補: 候補の模型たち(
-        道,
-        request.headers.get('X-Kyudo-No-Chain') ? '' : チャットか ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN,
-        チャットか
-      ),
+      候補,
+      頼んだ模型: (String(道).match(/models\/([^/:]+):/) || [])[1],
       鍵たち,
       始めの鍵: 次の鍵++ % 鍵たち.length,
       search: url.search || '',
@@ -345,6 +347,8 @@ export async function 上流へ送る(注文) {
   const 一つの上限 = 注文.待ちの上限 ?? (流し読みか ? 待ちの上限.流し読み : 待ちの上限.生成);
   const 締め切り = 始め + (注文.全体の締め切り ?? 全体の締め切り);
   const 切り替えの体 = [];
+  // 考えない体にしないのは、頼まれた模型だけ（先頭に回した模型が頼まれた模型とは限らない。直近に答えた模型を先頭に回す）
+  const 頼んだ模型 = 注文.頼んだ模型 ?? (候補[0] && 候補[0].模型);
   const 遅いの鍵 = (模型) => (流し読みか ? '流し読み:' : '生成:') + 模型;
   const 遅いと覚える = (模型) => 模型 && 遅い模型.set(遅いの鍵(模型), Date.now() + 遅いの控え);
   for (let 順 = 0; 順 < 候補.length; 順++) {
@@ -385,7 +389,7 @@ export async function 上流へ送る(注文) {
           ...(止め ? { signal: 止め.signal } : {}),
           headers: 頭,
           body: (切り替えの体[順] ??=
-            順 > 0
+            候補[順].模型 !== 頼んだ模型
               ? チャットの考えを絞る(考えない体(体, 候補[順].道), 候補[順].模型, 候補[順].道)
               : チャットの考えを絞る(体, 候補[順].模型, 候補[順].道)),
         });
@@ -578,6 +582,42 @@ export function 候補の模型たち(道, 連鎖, 頭から = false) {
   // 頭から：頼んだ模型に関わらず、連鎖の先頭（新しい模型）から試す。AI チャットはこれ（2026-10-13 に運用者が 3.8 から順にと決めた）
   if (頭から) return 並び.map((模型) => ({ 模型, 道: m[1] + 模型 + m[3] }));
   return [m[2], ...並び.filter((x) => x !== m[2])].map((模型) => ({ 模型, 道: m[1] + 模型 + m[3] }));
+}
+
+/**
+ * 直近に答えた模型を見る長さ（ms）。この間に答えた模型を、連鎖の先頭に回す。
+ * 打ち切った模型の控え（遅い模型）は Worker の実体ごとにしか持てず、呼ぶたびに別の実体に当たると効かない。
+ * 2026-10-22〜25：3.8・3.7 が答えなくなり、AI チャットは 1 分おきの問いでも毎回 15 秒ずつ 2 回打ち切ってから
+ * 3.6 に回った（最初の字まで 33 秒）。写真の読み取りも 3.6 が混むと 3.8・3.7 に 45 秒ずつ待ち、3.5 が答えるまで 70〜150 秒。
+ * 呼んだ記録（chukei_calls）は実体をまたいで残るので、そこから直近に答えた模型を読む
+ */
+export const 答えた模型を見る長さ = 30 * 60 * 1000;
+
+/**
+ * 直近に答えた模型（なければ空）。流し読み（AI チャット）と生成（写真の読み取りなど）で別に見る。
+ * 読めなくても（表が無い・D1 が答えない）空を返し、いつもの順で送る
+ * @param {{KAIZEN_DB?: any}} env
+ * @param {'流し読み'|'生成'} 種
+ */
+export async function 直近に答えた模型(env, 種, 今 = Date.now()) {
+  if (!env || !env.KAIZEN_DB) return '';
+  try {
+    const 行 = await env.KAIZEN_DB.prepare(
+      "SELECT used FROM chukei_calls WHERE kind = ?1 AND status = 200 AND used != '' AND at > ?2 ORDER BY at DESC LIMIT 1"
+    )
+      .bind(種, 今 - 答えた模型を見る長さ)
+      .first();
+    return (行 && 行.used) || '';
+  } catch {
+    return '';
+  }
+}
+
+/** 候補の並びで、その模型を先頭に回す（ほかの並びは変えない）。候補に無ければそのまま */
+export function 先頭に回す(候補, 模型) {
+  const i = 候補.findIndex((x) => x.模型 === 模型);
+  if (i <= 0) return 候補;
+  return [候補[i], ...候補.slice(0, i), ...候補.slice(i + 1)];
 }
 
 /** Firebase の ID トークンを確かめる。返すのは中身（sub, aud, ...） */
