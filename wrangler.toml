@@ -33,6 +33,13 @@ name = "RATE"
 namespace_id = "1001"
 simple = { limit = 40, period = 60 }
 
+# 全員合わせた回数の上限（1分あたり。2026-11-03）。匿名のログインを作り替えながら呼び続けて、Gemini の 1 日の枠を
+# 使い切られるのを止める。ふだんの使い方（数十の団体）では届かない数にしてある。数えるのは Cloudflare の拠点ごと
+[[ratelimits]]
+name = "RATE_ALL"
+namespace_id = "1003"
+simple = { limit = 300, period = 60 }
+
 # 改善のための保存（/hozon）の上限。写真を読むと 1 回で最大 6 回（文字 1・写真 5）送るので別に数える
 [[ratelimits]]
 name = "RATE_HOZON"

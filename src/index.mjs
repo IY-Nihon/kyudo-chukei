@@ -110,6 +110,10 @@ export default {
       return 答える({ error: 'ログインの証が正しくありません', 訳: String((e && e.message) || e) }, 401, 許す出どころ);
     }
 
+    // 2b. 通してよい人か（確認の済んだ団体の持ち主か、所属の証のある部員だけ。2026-11-03）
+    if (!(await 通してよい人か(本人, 証)))
+      return 答える({ error: 'この機能は、団体または個人でログインした人だけが使えます' }, 403, 許す出どころ);
+
     // 改善のための保存（src/hozon.mjs）。回数の上限は Gemini の中継とは別に数える。
     // 同じ上限を使うと、写真を読むたびに保存の 1〜6 回ぶん Gemini の枠が減り、
     // AI チャットが「呼びすぎ」で断られやすくなる（2026-09-26）
@@ -124,9 +128,11 @@ export default {
     const 道 = 上流の道にする(url, env.ALLOWED_MODELS.split(',').map((s) => s.trim()));
     if (!道) return 答える({ error: 'この道は中継しません' }, 404, 許す出どころ);
 
-    // 4. 回数
+    // 4. 回数（人ごと、それから全員合わせて。全員の上限は、人を替えながら呼び続けて枠を使い切られるのを止める）
     if (!(await 回数に収まるか(本人, env.RATE)))
       return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
+    if (!(await 回数に収まるか({ sub: '全員' }, env.RATE_ALL)))
+      return 答える({ error: 'ただいまAIが混み合っています。しばらく待ってからもう一度お試しください' }, 429, 許す出どころ);
 
     // 上流へ。鍵はここで付ける。体は読み解かないが、鍵を替えて送り直せるよう一度手元に置く
     const 鍵たち = 鍵の一覧(env);
@@ -618,6 +624,79 @@ export function 先頭に回す(候補, 模型) {
   const i = 候補.findIndex((x) => x.模型 === 模型);
   if (i <= 0) return 候補;
   return [候補[i], ...候補.slice(0, i), ...候補.slice(i + 1)];
+}
+
+/** 通してよいかの答えの控え（人ごと。Worker の生きている間だけ） */
+const 通す控え = new Map();
+const 通す控えの長さ = { 通す: 10 * 60 * 1000, 通さない: 60 * 1000 };
+
+/**
+ * 中継を通してよい人か（2026-11-03 本人）。確認の済んだ団体の持ち主か、所属の証のある部員だけ通す。
+ * 匿名のログインはいくらでも作れるので、ログインしているだけでは通さない（人を替えて Gemini の枠を使い切られる）。
+ *
+ * 決まり（firestore.rules）と同じ見方をここに書き写さず、その人の証で Firestore の団体を読めるかで決める
+ *（読めるのは、確認の済んだ持ち主・猶予中の今ある団体・所属の証のある部員）。
+ *   匿名 … member_claims/{本人} から団体を引き、groups/{団体} を読めるか
+ *   メール … 自分のメールの団体（group_accounts を email で引く）の groups/{団体} を読めるか
+ * Firestore に届かないとき（混み・障害）は通す（守りが 1 つ減るだけ。人ごと・全員の回数の上限は残る）。
+ * 答えは人ごとに控える（通す 10 分・通さない 1 分）
+ * @param {{sub: string, aud: string, email?: string, firebase?: {sign_in_provider?: string}}} 本人
+ * @param {string} 証 その人の ID トークン（Firestore にその人として聞く）
+ * @param {{読む?: (道: string, 中身?: object) => Promise<Response>, 今?: number}} [道具] 検査で差し替える
+ */
+export async function 通してよい人か(本人, 証, 道具 = {}) {
+  const 今 = 道具.今 || Date.now();
+  const 控え = 通す控え.get(本人.sub);
+  if (控え && 控え.期限 > 今) return 控え.通す;
+  const 根 = `https://firestore.googleapis.com/v1/projects/${本人.aud}/databases/(default)/documents`;
+  const 読む =
+    道具.読む ||
+    ((道, 中身) =>
+      fetch(根 + 道, {
+        method: 中身 ? 'POST' : 'GET',
+        headers: { Authorization: 'Bearer ' + 証, 'Content-Type': 'application/json' },
+        body: 中身 ? JSON.stringify(中身) : undefined,
+      }));
+  let 通す;
+  try {
+    通す = await 団体を読めるか(本人, 読む);
+  } catch {
+    return true;
+  }
+  通す控え.set(本人.sub, { 通す, 期限: 今 + (通す ? 通す控えの長さ.通す : 通す控えの長さ.通さない) });
+  if (通す控え.size > 5000) 通す控え.clear();
+  return 通す;
+}
+
+async function 団体を読めるか(本人, 読む) {
+  const 届かない = (r) => r.status >= 500 || r.status === 429;
+  let 団体 = null;
+  if (本人.firebase && 本人.firebase.sign_in_provider === 'anonymous') {
+    const r = await 読む(`/member_claims/${encodeURIComponent(本人.sub)}`);
+    if (届かない(r)) throw new Error('届かない');
+    if (!r.ok) return false;
+    const j = await r.json();
+    団体 = j.fields && j.fields.groupId && j.fields.groupId.stringValue;
+  } else {
+    if (!本人.email) return false;
+    const r = await 読む(':runQuery', {
+      structuredQuery: {
+        from: [{ collectionId: 'group_accounts' }],
+        where: { fieldFilter: { field: { fieldPath: 'email' }, op: 'EQUAL', value: { stringValue: 本人.email } } },
+        limit: 1,
+      },
+    });
+    if (届かない(r)) throw new Error('届かない');
+    if (!r.ok) return false;
+    const j = await r.json();
+    const 帳面 = (Array.isArray(j) ? j : []).find((x) => x && x.document);
+    団体 = 帳面 && (帳面.document.fields?.id?.stringValue || 帳面.document.name.split('/').pop());
+  }
+  if (!団体 || !/^[0-9A-Za-z_-]{1,64}$/.test(団体)) return false;
+  const r = await 読む(`/groups/${団体}`);
+  if (届かない(r)) throw new Error('届かない');
+  // 団体の文書が無くても（404）、読むのを許されたなら決まりは通している
+  return r.ok || r.status === 404;
 }
 
 /** Firebase の ID トークンを確かめる。返すのは中身（sub, aud, ...） */
