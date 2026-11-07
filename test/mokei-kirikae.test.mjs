@@ -260,7 +260,7 @@ test('連鎖の指定を空にすれば、切り替えない（試験で、そ�
   assert.strictEqual(候補の模型たち(生成の道('gemini-3.8-flash'), '').length, 1);
 });
 
-import { 直近に答えた模型, 先頭に回す, 答えた模型を見る長さ } from '../src/index.mjs';
+import { 直近に答えた模型, 先頭に回す, 答えた模型を見る長さ, 答えた模型を忘れる, 答えた模型を控える, 答えた模型の控えの長さ } from '../src/index.mjs';
 
 /** chukei_calls を 1 つの配列で持つ偽の D1（prepare → bind → first だけ） */
 const 偽のD1 = (行たち, 落ちる = false) => ({
@@ -288,11 +288,34 @@ test('直近に答えた模型：種ごとに、見る長さの中で最後に 2
     { at: 今 - 10_000, kind: '生成', status: 200, used: 'gemini-3.5-flash' },
     { at: 今 - 答えた模型を見る長さ - 1, kind: '生成', status: 200, used: 'gemini-3.7-flash' },
   ]);
+  答えた模型を忘れる();
   assert.strictEqual(await 直近に答えた模型(env, '流し読み', 今), 'gemini-3.6-flash');
   assert.strictEqual(await 直近に答えた模型(env, '生成', 今), 'gemini-3.5-flash');
+  答えた模型を忘れる();
   assert.strictEqual(await 直近に答えた模型(偽のD1([]), '生成', 今), '');
+  答えた模型を忘れる();
   assert.strictEqual(await 直近に答えた模型(偽のD1([], true), '生成', 今), '', '表が無くても止めない');
+  答えた模型を忘れる();
   assert.strictEqual(await 直近に答えた模型({}, '生成', 今), '', 'D1 の結び付けが無い');
+});
+
+test('直近に答えた模型：実体の中で 60 秒控える（毎回 D1 を読まない）。答えたらすぐ入れ替える', async () => {
+  答えた模型を忘れる();
+  const 今 = 1_800_000_000_000;
+  let 読んだ = 0;
+  const env = {
+    KAIZEN_DB: {
+      prepare: () => ({ bind: () => ({ first: async () => (読んだ++, { used: 'gemini-3.6-flash' }) }) }),
+    },
+  };
+  assert.strictEqual(await 直近に答えた模型(env, '流し読み', 今), 'gemini-3.6-flash');
+  assert.strictEqual(await 直近に答えた模型(env, '流し読み', 今 + 30_000), 'gemini-3.6-flash');
+  assert.strictEqual(読んだ, 1, '60 秒のうちに D1 を読み直した');
+  答えた模型を控える('流し読み', 'gemini-3.8-flash', 今 + 31_000);
+  assert.strictEqual(await 直近に答えた模型(env, '流し読み', 今 + 32_000), 'gemini-3.8-flash');
+  assert.strictEqual(await 直近に答えた模型(env, '流し読み', 今 + 32_000 + 答えた模型の控えの長さ), 'gemini-3.6-flash');
+  assert.strictEqual(読んだ, 2);
+  答えた模型を忘れる();
 });
 
 test('先頭に回す：その模型だけを先頭へ。ほかの並びは変えない。候補に無い・もう先頭ならそのまま', () => {

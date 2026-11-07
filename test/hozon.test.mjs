@@ -141,3 +141,17 @@ test('保存の回数は Gemini の中継とは別に数える（保存で Gemin
   assert.strictEqual(await 回数に収まるか(本人, 枠だけ.RATE_HOZON), true);
   assert.strictEqual(枠だけ.RATE.呼ばれた, 0);
 });
+
+test('改善のための保存：大きすぎる体は、証を確かめる前・体を読む前に Content-Length で断る（413）', async () => {
+  const { default: 中継 } = await import('../src/index.mjs');
+  let 読んだ = false;
+  const 依頼 = new Request('https://chukei.example/hozon', {
+    method: 'POST',
+    headers: { 'Content-Length': String(300 * 1024), Origin: 'https://kyudoscoremanager.web.app' },
+    body: 'x',
+  });
+  Object.defineProperty(依頼, 'text', { value: async () => ((読んだ = true), '') });
+  const 返事 = await 中継.fetch(依頼, { ALLOWED_ORIGINS: 'https://kyudoscoremanager.web.app', FIREBASE_PROJECT_IDS: 'kyudoscoremanager' }, {});
+  assert.strictEqual(返事.status, 413);
+  assert.strictEqual(読んだ, false);
+});
