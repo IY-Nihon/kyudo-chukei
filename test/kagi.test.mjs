@@ -117,3 +117,28 @@ test('鍵の置き場：知らない番号で取り直すときは Cloudflare �
   assert.strictEqual(頼み[0].cf.cacheTtl, 3600, 'ふだんの取得は控えを使う');
   assert.strictEqual(頼み[1].cf.cacheTtl, 0, '取り直しで控えを使った');
 });
+
+test('鍵の置き場：期限が切れて取り直せないときは前の鍵で確かめ続け、取り直しは 1 分に 1 回まで', async () => {
+  const 甲 = await 鍵の組('a');
+  let 取った = 0;
+  let 壊れている = false;
+  const 送る = async () => (
+    取った++,
+    壊れている
+      ? new Response('x', { status: 500 })
+      : new Response(JSON.stringify({ keys: [甲.jwk] }), { status: 200, headers: { 'Cache-Control': 'max-age=60' } })
+  );
+  const 鍵を選ぶ = 鍵の置き場を作る('https://x/jwks', { 送る });
+  await 鍵を選ぶ('a', 0);
+  壊れている = true;
+  // 期限（60 秒）が過ぎた。取り直しに失敗しても、前の鍵で通す
+  assert.ok(await 鍵を選ぶ('a', 70_000));
+  assert.strictEqual(取った, 2);
+  // 失敗のあと 1 分のうちは取りに行かない
+  for (let 回 = 0; 回 < 5; 回++) assert.ok(await 鍵を選ぶ('a', 71_000 + 回));
+  assert.strictEqual(取った, 2, '失敗のあと呼ぶたびに取りに行った');
+  // 1 分たったらまた取りに行き、直っていれば新しい控えになる
+  壊れている = false;
+  assert.ok(await 鍵を選ぶ('a', 131_000));
+  assert.strictEqual(取った, 3);
+});
