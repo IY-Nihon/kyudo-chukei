@@ -134,7 +134,8 @@ export function 入れてよいか({ 鍵, 帳面, 逆引き, 今 }) {
   if (!真偽(帳面.fields && 帳面.fields.verified) && !(今 < 猶予の終わり)) return '団体がまだ';
   if (!逆引き) return '見つからない';
   const 欄 = 逆引き.fields || {};
-  if (!字(欄.memberId)) return '見つからない';
+  // 消した印の行（アプリが行を消す代わりに書く。kyudoscoremanager_app の src/kojinId.js）は無いものとして扱う
+  if (!字(欄.memberId) || 真偽(欄['消した'])) return '見つからない';
   if (真偽(欄['招待'])) {
     // 期限の無い招待の文書は使えない（前の決まりと同じ）
     const 期限 = 時刻(欄.expiresAt);
