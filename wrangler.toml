@@ -2,6 +2,7 @@
 #
 #   npx wrangler deploy                    … 配る
 #   npx wrangler secret put GEMINI_API_KEY … 鍵を置く（一度だけ。束には入れない）
+#   npx wrangler secret put FIREBASE_SA_KEYS … 部員のログインの確かめ（/kojin）に使うサービスアカウントの鍵（README の「部員のログイン」）
 #   npx wrangler tail                      … 動いている様子を見る
 #
 # アプリは Firebase のログインの証（ID トークン）を Authorization に付けて
@@ -26,6 +27,9 @@ ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-
 # どちらも、直近 30 分に答えた模型があれば、それを先頭に回す（src/index.mjs の 答えた模型を見る長さ）
 MODEL_CHAIN = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash"
 MODEL_CHAIN_STREAM = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash"
+# App Check の印（X-Firebase-AppCheck）の扱い。log … 確かめて数えるだけ（呼んだ記録の appcheck）。enforce … 無い・正しくないものを断る。
+# 中継の記録で印の無い呼び出しが減ってから enforce にする（README の「App Check」）
+APPCHECK_MODE = "log"
 
 # 人ごとの回数の上限（1分あたり）。鍵を抜かれなくても、1人が回し続けるのを止める
 [[ratelimits]]
@@ -44,6 +48,18 @@ simple = { limit = 300, period = 60 }
 [[ratelimits]]
 name = "RATE_HOZON"
 namespace_id = "1002"
+simple = { limit = 60, period = 60 }
+
+# 部員のログインの確かめ（POST /kojin。src/kojin.mjs。2026-11-04）の回数の上限。個人ID の総当たりを止める。
+# 通信元（IP）ごとに 1 分 10 回（打ち間違いには十分）・団体ごとに 1 分 60 回（部員が一度に入る練習の始めでも届かない）
+[[ratelimits]]
+name = "RATE_KOJIN"
+namespace_id = "1004"
+simple = { limit = 10, period = 60 }
+
+[[ratelimits]]
+name = "RATE_KOJIN_GROUP"
+namespace_id = "1005"
 simple = { limit = 60, period = 60 }
 
 # アプリの改善のための保存（src/hozon.mjs）。文字は D1、写真・PDF は KV。2026-09-26 に作った
