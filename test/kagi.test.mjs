@@ -103,3 +103,17 @@ test('流し読み：中身の無い 200 は、最後の模型でなければ次
   assert.strictEqual(最後.返事.status, 200);
   assert.strictEqual(最後.送った回数, 1);
 });
+
+test('鍵の置き場：知らない番号で取り直すときは Cloudflare の控えを通さない（鍵が替わった直後に古い一覧を読まない）', async () => {
+  const 甲 = await 鍵の組('a');
+  const 乙 = await 鍵の組('b');
+  const 頼み = [];
+  let 今の鍵 = [甲.jwk];
+  const 送る = async (_, 注文) => (頼み.push(注文), new Response(JSON.stringify({ keys: 今の鍵 }), { status: 200 }));
+  const 鍵を選ぶ = 鍵の置き場を作る('https://x/jwks', { 送る });
+  await 鍵を選ぶ('a', 1000);
+  今の鍵 = [甲.jwk, 乙.jwk];
+  await 鍵を選ぶ('b', 1000 + 61_000);
+  assert.strictEqual(頼み[0].cf.cacheTtl, 3600, 'ふだんの取得は控えを使う');
+  assert.strictEqual(頼み[1].cf.cacheTtl, 0, '取り直しで控えを使った');
+});

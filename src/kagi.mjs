@@ -17,9 +17,11 @@ export function 鍵の置き場を作る(場所, { 送る = (...引数) => fetch
   let 控え = { 鍵たち: null, 期限: 0 };
   let 最後に取った = 0;
   const 取り込んだ = new Map();
-  async function 取る(今) {
+  async function 取る(今, 控えを使わない = false) {
     最後に取った = 今;
-    const r = await 送る(場所, { cf: { cacheTtl: 3600, cacheEverything: true } });
+    // 知らない鍵の番号で取り直すときは、Cloudflare の控え（1 時間）を通さない。通すと、Google が鍵を替えた直後に
+    // 古い一覧が返り、最大 1 時間ログインの証を断った（2026-11-07 のレビュー）
+    const r = await 送る(場所, 控えを使わない ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 3600, cacheEverything: true } });
     if (!r || !r.ok) throw new Error('公開鍵を取れない');
     const j = await r.json();
     const m = String((r.headers && r.headers.get && r.headers.get('Cache-Control')) || '').match(/max-age=(\d+)/);
@@ -32,7 +34,7 @@ export function 鍵の置き場を作る(場所, { 送る = (...引数) => fetch
     let jwk = 控え.鍵たち.find((k) => k.kid === kid);
     // 鍵が入れ替わった直後は控えが古い。取り直すのは 1 分に 1 回まで（偽の番号で取り直し続けない）
     if (!jwk && 今 - 最後に取った >= 最短の取り直し) {
-      await 取る(今);
+      await 取る(今, true);
       jwk = 控え.鍵たち.find((k) => k.kid === kid);
     }
     if (!jwk) throw new Error('公開鍵が見つからない');
