@@ -28,6 +28,8 @@
  *   1 回の確かめで Firestore を 3 回読み 1 回書く（帳面・逆引き表・名簿・証）
  */
 
+import { 印を強いるか } from './kagi.mjs';
+
 /** 今ある団体の確認の猶予の終わり（firestore.rules の inGracePeriod・アプリの src/mailKakunin.js と同じ日） */
 export const 猶予の終わり = Date.parse('2026-11-10T00:00:00Z');
 /** 4 桁の個人ID を使える終わり（firestore.rules の legacyIdUsable・アプリの src/kojinId.js と同じ日） */
@@ -191,7 +193,7 @@ export async function 部員を確かめる(request, env, 本人, 道具) {
     残す('試しすぎ');
     return { 状態: 429, 中身: { error: '試した回数が多すぎます。1 分ほど待ってからお試しください' } };
   }
-  if (String(env.APPCHECK_MODE || '') === 'enforce' && 道具.印の様子 !== 'ok') {
+  if (印を強いるか(env, 本人.aud) && 道具.印の様子 !== 'ok') {
     残す('印なし');
     return { 状態: 401, 中身: { error: 'この端末の確かめに失敗しました', 印: 'appcheck' } };
   }

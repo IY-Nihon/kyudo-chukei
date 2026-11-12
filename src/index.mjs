@@ -36,7 +36,7 @@
 
 import { 保存を受ける, 古い保存を消す, 文の上限 } from './hozon.mjs';
 import { 部員を確かめる } from './kojin.mjs';
-import { 鍵の置き場を作る, 署名を確かめる, 印を確かめる } from './kagi.mjs';
+import { 鍵の置き場を作る, 署名を確かめる, 印を確かめる, 印を強いるか } from './kagi.mjs';
 
 const 公開鍵の場所 = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const 上流 = 'https://generativelanguage.googleapis.com';
@@ -121,7 +121,7 @@ export default {
     // App Check の印（アプリが X-Firebase-AppCheck に付ける）。APPCHECK_MODE が enforce なら、無い・正しくないものを断る。
     // 既定（log）は数えるだけ（呼んだ記録の appcheck）。ほかの前ぶれと同時に確かめる
     const 印の約束 = 印を確かめる(request.headers.get('X-Firebase-AppCheck'), 本人.aud).catch(() => 'bad');
-    const 印で止めるか = async () => String(env.APPCHECK_MODE || '') === 'enforce' && (await 印の約束) !== 'ok';
+    const 印で止めるか = async () => 印を強いるか(env, 本人.aud) && (await 印の約束) !== 'ok';
     const 印で断る = () =>
       答える({ error: 'この端末の確かめに失敗しました。ブラウザを新しくして読み込み直してください', 印: 'appcheck' }, 401, 許す出どころ);
 

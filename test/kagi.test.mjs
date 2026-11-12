@@ -142,3 +142,12 @@ test('鍵の置き場：期限が切れて取り直せないときは前の鍵�
   assert.ok(await 鍵を選ぶ('a', 131_000));
   assert.strictEqual(取った, 3);
 });
+
+test('印を強いるか：enforce のときだけ・外す企画は強いない', async () => {
+  const { 印を強いるか } = await import('../src/kagi.mjs');
+  assert.strictEqual(印を強いるか({ APPCHECK_MODE: 'log' }, 'kyudoscoremanager'), false);
+  assert.strictEqual(印を強いるか({}, 'kyudoscoremanager'), false);
+  const env = { APPCHECK_MODE: 'enforce', APPCHECK_SKIP_PROJECTS: 'kyudoscoremanager-stg' };
+  assert.strictEqual(印を強いるか(env, 'kyudoscoremanager'), true);
+  assert.strictEqual(印を強いるか(env, 'kyudoscoremanager-stg'), false);
+});
