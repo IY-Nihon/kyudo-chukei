@@ -114,3 +114,15 @@ export async function 印を確かめる(印, 企画, { 鍵を選ぶ = 印の鍵
     return 'bad';
   }
 }
+
+/**
+ * App Check の印を強いる企画か。APPCHECK_MODE が enforce で、APPCHECK_SKIP_PROJECTS（, 区切り）に無い企画だけ強いる。
+ * 検証環境の束には App Check の鍵を入れていない（印が付かない）ので、強いると検証環境の検査が全部断られる（2026-11-13）
+ * @param {{APPCHECK_MODE?: string, APPCHECK_SKIP_PROJECTS?: string}} env
+ * @param {string} 企画 ログインの証の aud
+ */
+export function 印を強いるか(env, 企画) {
+  if (String((env && env.APPCHECK_MODE) || '') !== 'enforce') return false;
+  const 外す = String((env && env.APPCHECK_SKIP_PROJECTS) || '').split(',').map((s) => s.trim()).filter(Boolean);
+  return !外す.includes(String(企画));
+}

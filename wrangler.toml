@@ -29,7 +29,11 @@ MODEL_CHAIN = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-fla
 MODEL_CHAIN_STREAM = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash"
 # App Check の印（X-Firebase-AppCheck）の扱い。log … 確かめて数えるだけ（呼んだ記録の appcheck）。enforce … 無い・正しくないものを断る。
 # 中継の記録で印の無い呼び出しが減ってから enforce にする（README の「App Check」）
-APPCHECK_MODE = "log"
+# 2026-11-13 enforce にした：11/8 から数えて、ふつうの利用 15 回は全部 ok、印なしは 11/12 夜の攻撃の試しの 6 回だけだった（本人「やって」）
+# 戻すときは "log" にして配る
+APPCHECK_MODE = "enforce"
+# 強いない企画（, 区切り）。検証環境の束には App Check の鍵を入れていないので外す
+APPCHECK_SKIP_PROJECTS = "kyudoscoremanager-stg"
 
 # 人ごとの回数の上限（1分あたり）。鍵を抜かれなくても、1人が回し続けるのを止める
 [[ratelimits]]
