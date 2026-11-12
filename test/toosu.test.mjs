@@ -118,3 +118,21 @@ test('通してよいかの控えは D1 にも置き、別の実体でも読み�
   assert.equal(await 通してよい人か(本人, 't', { 読む, 団体: '100001', env, 今: 2000 }), true);
   assert.equal(回, 1, 'D1 の控えがあるのに Firestore を読み直した');
 });
+
+test('通してよい人か：端末の App Check の印を Firestore の読みに添える（Firestore で強いても読めるように）', async () => {
+  const 元 = globalThis.fetch;
+  const 見た = [];
+  globalThis.fetch = async (道, 注文) => {
+    見た.push(注文.headers);
+    return new Response('{}', { status: 200 });
+  };
+  try {
+    const 本人 = { sub: 'u-shirushi', aud: 'kyudoscoremanager', email: 'z@example.com', firebase: { sign_in_provider: 'password' } };
+    assert.equal(await 通してよい人か(本人, 't', { 団体: '100001', 印: 'shirushi-1' }), true);
+    assert.equal(見た[0]['X-Firebase-AppCheck'], 'shirushi-1');
+    assert.equal(await 通してよい人か({ ...本人, sub: 'u-shirushi-2' }, 't', { 団体: '100002' }), true);
+    assert.equal('X-Firebase-AppCheck' in 見た[1], false, '印が無いのに頭を付けた');
+  } finally {
+    globalThis.fetch = 元;
+  }
+});
