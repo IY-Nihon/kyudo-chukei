@@ -137,7 +137,12 @@ export default {
 
     // 2b. 通してよい人か（確認の済んだ団体の持ち主か、所属の証のある部員だけ。2026-11-03）。
     // アプリは入っている団体を X-Kyudo-Group に付ける。付いていれば Firestore を 1 回読むだけで決まる（下の 通してよい人か）
-    const 通すの約束 = 通してよい人か(本人, 証, { 団体: request.headers.get('X-Kyudo-Group') || '', env, 待たずに });
+    const 通すの約束 = 通してよい人か(本人, 証, {
+      団体: request.headers.get('X-Kyudo-Group') || '',
+      印: request.headers.get('X-Firebase-AppCheck') || '',
+      env,
+      待たずに,
+    });
 
     // 改善のための保存（src/hozon.mjs）。回数の上限は Gemini の中継とは別に数える。
     // 同じ上限を使うと、写真を読むたびに保存の 1〜6 回ぶん Gemini の枠が減り、
@@ -774,7 +779,13 @@ export async function 通してよい人か(本人, 証, 道具 = {}) {
     ((道, 中身) =>
       fetch(根 + 道, {
         method: 中身 ? 'POST' : 'GET',
-        headers: { Authorization: 'Bearer ' + 証, 'Content-Type': 'application/json' },
+        // 端末の App Check の印をそのまま添える。Firestore で App Check を強いると、印の無い読みは断られ、
+        // 全員が「通さない」になる（2026-11-13。強いる前に気づいた）
+        headers: {
+          Authorization: 'Bearer ' + 証,
+          'Content-Type': 'application/json',
+          ...(道具.印 ? { 'X-Firebase-AppCheck': 道具.印 } : {}),
+        },
         body: 中身 ? JSON.stringify(中身) : undefined,
       }));
   let 通す;
