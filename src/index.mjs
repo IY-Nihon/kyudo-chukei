@@ -36,6 +36,7 @@
 
 import { 保存を受ける, 古い保存を消す, 文の上限 } from './hozon.mjs';
 import { 部員を確かめる } from './kojin.mjs';
+import { 管理者を確かめる } from './kanri.mjs';
 import { 一日の枠に収まるか, 古い一日の数を消す } from './ichinichi.mjs';
 import { 鍵の置き場を作る, 署名を確かめる, 印を確かめる, 印を強いるか } from './kagi.mjs';
 
@@ -133,6 +134,16 @@ export default {
         回数に収まるか,
         待たずに,
       });
+      return 答える(結果.中身, 結果.状態, 許す出どころ);
+    }
+
+    // 管理者の合言葉（src/kanri.mjs。2026-11-14）。持ち主かは、その人の証で団体の private を読めるかで確かめる。
+    // 回数は人ごとに 1 分 10 回（部員のログインと同じ枠の数え方）。まちがいの数は kanri.mjs が団体ごとに数える
+    if (url.pathname === '/kanri') {
+      if (!(await 回数に収まるか({ sub: '管理:' + 本人.sub }, env.RATE_KOJIN)))
+        return 答える({ error: '呼びすぎです。1 分ほど待ってからお試しください' }, 429, 許す出どころ);
+      if (await 印で止めるか()) return 印で断る();
+      const 結果 = await 管理者を確かめる(request, env, 本人, 証);
       return 答える(結果.中身, 結果.状態, 許す出どころ);
     }
 
