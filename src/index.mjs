@@ -36,6 +36,7 @@
 
 import { 保存を受ける, 古い保存を消す, 文の上限 } from './hozon.mjs';
 import { 部員を確かめる } from './kojin.mjs';
+import { 一日の枠に収まるか, 古い一日の数を消す } from './ichinichi.mjs';
 import { 鍵の置き場を作る, 署名を確かめる, 印を確かめる, 印を強いるか } from './kagi.mjs';
 
 const 公開鍵の場所 = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -181,6 +182,29 @@ export default {
     if (!(await 回数に収まるか({ sub: '全員' }, env.RATE_ALL)))
       return 答える({ error: 'ただいまAIが混み合っています。しばらく待ってからもう一度お試しください' }, 429, 許す出どころ);
     if (await 印で止めるか()) return 印で断る();
+    // 1 日の回数の上限（src/ichinichi.mjs）。返事は Gemini の 1 日の枠切れと同じ形にする。アプリは
+    // 「PerDayPerProject」で 1 日の上限と見分け、送り直さずに「夕方に戻ります」と知らせる
+    const 付いた団体 = request.headers.get('X-Kyudo-Group') || '';
+    const 一日 = await 一日の枠に収まるか(env, {
+      企画: 本人.aud,
+      人: 本人.sub,
+      団体: /^[0-9A-Za-z_-]{1,64}$/.test(付いた団体) ? 付いた団体 : '',
+    });
+    if (!一日.収まる) {
+      体の約束.catch(() => {});
+      console.log(`1 日の上限（${一日.越えた}）`);
+      return 答える(
+        {
+          error: {
+            code: 429,
+            status: 'RESOURCE_EXHAUSTED',
+            message: `今日のAIの利用上限に達しました（中継の 1 日の上限・${一日.越えた}。PerDayPerProject）`,
+          },
+        },
+        429,
+        許す出どころ
+      );
+    }
 
     // 上流へ。鍵はここで付ける。体は読み解かないが、鍵を替えて送り直せるよう一度手元に置く
     const 鍵たち = 鍵の一覧(env);
@@ -262,6 +286,7 @@ export default {
   async scheduled(event, env, ctx) {
     ctx.waitUntil(古い呼んだ記録を消す(env).catch(() => {}));
     ctx.waitUntil(古い控えを消す(env).catch(() => {}));
+    ctx.waitUntil(古い一日の数を消す(env).catch(() => {}));
     ctx.waitUntil(
       古い保存を消す(env).then(
         (数) => console.log(`古い保存を ${数} 件消しました`),

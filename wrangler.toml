@@ -34,6 +34,11 @@ MODEL_CHAIN_STREAM = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-
 APPCHECK_MODE = "enforce"
 # 強いない企画（, 区切り）。検証環境の束には App Check の鍵を入れていないので外す
 APPCHECK_SKIP_PROJECTS = "kyudoscoremanager-stg"
+# 1 日の回数の上限（src/ichinichi.mjs。2026-11-13）。Gemini への呼び出しを、人ごと・団体ごとに数える。0 は数えない。
+# 日の境目は Gemini の枠と同じ米国太平洋時間の 0 時（日本の 16〜17 時）。
+# 目安：AI チャットは 1 問で 2〜4 回、写真の読み取りは 1 枚で数回。10/25〜11/12 の本番は全団体合わせて 1 日 数十回
+DAILY_PERSON = "300"
+DAILY_GROUP = "1000"
 
 # 人ごとの回数の上限（1分あたり）。鍵を抜かれなくても、1人が回し続けるのを止める
 [[ratelimits]]
