@@ -50,6 +50,16 @@ function 偽の雲(文書 = {}) {
     }
     assert.strictEqual(頼み.headers.Authorization, 'Bearer sa-token', 'サービスアカウントの証で読み書きしていない');
     const 道 = decodeURIComponent(url.replace(/^.*\/documents/, ''));
+    // 逆引き表を memberId で引く（招待で入った人の本当の個人ID）
+    if (頼み.method === 'POST' && 道.endsWith(':runQuery')) {
+      if (文書['逆引きの問い'] === '壊れた') return new Response('{}', { status: 503 });
+      const 親 = 道.replace(/:runQuery$/, '') + '/member_lookup/';
+      const 探す = JSON.parse(頼み.body).structuredQuery.where.fieldFilter.value.stringValue;
+      const 行 = Object.entries(文書)
+        .filter(([鍵, 中]) => 鍵.startsWith(親) && 中 && 中.memberId && 中.memberId.stringValue === 探す)
+        .map(([鍵, 中]) => ({ document: { name: 'projects/p/databases/(default)/documents' + 鍵, fields: 中 } }));
+      return new Response(JSON.stringify(行.length ? 行 : [{ readTime: 'x' }]), { status: 200 });
+    }
     if (頼み.method === 'PATCH') {
       書いた.push({ 道, 中身: JSON.parse(頼み.body) });
       return new Response('{}', { status: 200 });
@@ -185,4 +195,39 @@ test('サービスアカウントを選ぶ：企画ごとの表・並び・1 つ
   assert.strictEqual(サービスアカウントを選ぶ(JSON.stringify(本番), 'kyudoscoremanager-stg'), null);
   assert.strictEqual(サービスアカウントを選ぶ('壊れた', 'kyudoscoremanager'), null);
   assert.strictEqual(サービスアカウントを選ぶ(undefined, 'kyudoscoremanager'), null);
+});
+
+test('招待リンクで入った人の証には、本当の個人ID（kojinId）も添える。personalId は招待の鍵のまま', async () => {
+  証の控えを忘れる();
+  const 今 = Date.parse('2026-11-20T00:00:00Z');
+  const 招待の鍵 = 'abcdefghijklmnopqrstuvwxyz012345';
+  const 招待 = { memberId: 欄.字('m1'), 招待: 欄.真, expiresAt: 欄.時(今 + 86400000) };
+  const env = { FIREBASE_SA_KEYS: JSON.stringify({ kyudoscoremanager: await 偽のサービスアカウント() }) };
+  const 入る = async (文書) => {
+    const 雲 = 偽の雲(団体の文書({ [`/groups/100001/member_lookup/${招待の鍵}`]: 招待, ...文書 }));
+    const 結果 = await 部員を確かめる(依頼({ 団体: '100001', 鍵: 招待の鍵 }), env, 匿名, {
+      送る: 雲.送る,
+      回数に収まるか: いつも収まる,
+      今,
+    });
+    assert.strictEqual(結果.中身.結果, '入れた');
+    return 雲.書いた[0].中身.fields;
+  };
+  // 6 字と 4 桁の両方があれば 6 字。消した ID・別の人の ID・招待の鍵そのものは選ばない
+  let 証 = await 入る({
+    '/groups/100001/member_lookup/1023': { memberId: 欄.字('m1') },
+    '/groups/100001/member_lookup/K7MP3X': { memberId: 欄.字('m1') },
+    '/groups/100001/member_lookup/Q2WE4R': { memberId: 欄.字('m1'), 消した: 欄.真 },
+    '/groups/100001/member_lookup/Z9XY8W': { memberId: 欄.字('m2') },
+  });
+  assert.strictEqual(証.kojinId.stringValue, 'K7MP3X');
+  assert.strictEqual(証.personalId.stringValue, 招待の鍵);
+  // 4 桁だけなら 4 桁（12/2 まで）
+  証 = await 入る({ '/groups/100001/member_lookup/1023': { memberId: 欄.字('m1') } });
+  assert.strictEqual(証.kojinId.stringValue, '1023');
+  // 個人ID が無い・引けないときは添えないが、ログインは通す
+  証 = await 入る({});
+  assert.ok(!('kojinId' in 証));
+  証 = await 入る({ 逆引きの問い: '壊れた' });
+  assert.ok(!('kojinId' in 証));
 });
