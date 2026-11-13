@@ -234,6 +234,36 @@ export async function 部員を確かめる(request, env, 本人, 道具) {
       残す('見つからない');
       return { 状態: 200, 中身: { 結果: '見つからない' } };
     }
+    // 招待リンクで入った人には、その人の本当の個人ID も証に添える（kojinId。2026-11-13 本人）。
+    // 証の personalId は招待の鍵のままなので、アプリの「ログインに使った個人ID」が出ず、リンクが切れたあと
+    // 自分で入り直せなかった。personalId は変えない（決まりが 4 桁の証の終わりを personalId で見る）。
+    // 引けなくてもログインは通す
+    let 本当のID = '';
+    if (真偽(逆引き.fields['招待'])) {
+      try {
+        const 返り = await 送る(`${根}/groups/${団体}:runQuery`, {
+          method: 'POST',
+          headers: { Authorization: 'Bearer ' + 証, 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            structuredQuery: {
+              from: [{ collectionId: 'member_lookup' }],
+              where: { fieldFilter: { field: { fieldPath: 'memberId' }, op: 'EQUAL', value: { stringValue: memberId } } },
+              limit: 20,
+            },
+          }),
+        });
+        const 行たち = 返り.ok ? await 返り.json() : [];
+        const 候補 = (Array.isArray(行たち) ? 行たち : [])
+          .map((行) => 行 && 行.document)
+          .filter((文書) => 文書 && 文書.fields && !真偽(文書.fields['招待']) && !真偽(文書.fields['消した']))
+          .map((文書) => decodeURIComponent(String(文書.name || '').split('/').pop()))
+          .filter((id) => 六字の形.test(id) || (四桁の形.test(id) && 今 < 四桁の終わり));
+        // 6 字を先に（4 桁は 12/3 で使えなくなる）
+        本当のID = 候補.find((id) => 六字の形.test(id)) || 候補[0] || '';
+      } catch {
+        本当のID = '';
+      }
+    }
     const 書いた = await 送る(`${根}/member_claims/${encodeURIComponent(本人.sub)}`, {
       method: 'PATCH',
       headers: { Authorization: 'Bearer ' + 証, 'Content-Type': 'application/json' },
@@ -242,6 +272,7 @@ export async function 部員を確かめる(request, env, 本人, 道具) {
           groupId: { stringValue: 団体 },
           memberId: { stringValue: memberId },
           personalId: { stringValue: 鍵 },
+          ...(本当のID ? { kojinId: { stringValue: 本当のID } } : {}),
           claimedAt: { timestampValue: new Date(今).toISOString() },
         },
       }),
