@@ -144,3 +144,7 @@ npx wrangler d1 execute kyudo-kaizen --remote --command "SELECT kind, used, coun
 名前の入った中身なので、倉庫や他の AI には入れない。消してほしいと言われたら `uid` か `group_id` で探して消す。
 手元で試すときは、番号を仮に入れた設定で `npx wrangler d1 migrations apply kyudo-kaizen --local` と
 `npx wrangler dev --local` を使う（2026-09-26 に文字の記録・写真・無い記録への写真 404・証なし 401 を確かめた）。
+
+## ライセンス
+
+コードは公開していますが、利用の許諾はしていません（[LICENSE](LICENSE)）。使う・直す・配るには、著作権者の許しが要ります。
