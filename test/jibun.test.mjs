@@ -5,7 +5,7 @@
  */
 import test from 'node:test';
 import assert from 'node:assert';
-import { 自分の記録を返す, 自分の行だけにする, 他の人, ページ } from '../src/jibun.mjs';
+import { 自分の記録を返す, 自分の行だけにする, 他の人, ページ, 初めの件, idの上限 } from '../src/jibun.mjs';
 import { 証の控えを忘れる, 猶予の終わり } from '../src/kojin.mjs';
 
 const 企画 = 'kyudoscoremanager';
@@ -231,11 +231,11 @@ test('差分・全部はページに分けて返し、続きで次のページ�
     };
   const 文書 = 団体の文書(多い);
   for (const 形 of ['差分', '全部']) {
-    const 一 = await 呼ぶ({ 団体, 形, 境目: { 記録: 時(5000).getTime() } }, 文書);
+    const 一 = await 呼ぶ({ 団体, 形, 境目: { 記録: 時(5000).getTime() }, 件: ページ }, 文書);
     assert.strictEqual(一.状態, 200, 形);
     assert.strictEqual(一.中身.記録.length + 一.中身.外す.length, ページ, `${形}：1 ページの数`);
     assert.ok(一.中身.続き, `${形}：続きが無い`);
-    const 二 = await 呼ぶ({ 団体, 形, 境目: { 記録: 時(5000).getTime() }, 続き: 一.中身.続き }, 文書);
+    const 二 = await 呼ぶ({ 団体, 形, 境目: { 記録: 時(5000).getTime() }, 続き: 一.中身.続き, 件: ページ }, 文書);
     assert.strictEqual(二.状態, 200, 形);
     assert.strictEqual(二.中身.続き, null, `${形}：最後のページなのに続きがある`);
     const 全部のid = [...一.中身.記録, ...二.中身.記録].map((r) => r.id).concat(一.中身.外す, 二.中身.外す);
@@ -281,4 +281,80 @@ test('断る：鍵が無い（404）・匿名でない・所属の証が無い�
     400,
     'ほかの団体の続きを受けた'
   );
+});
+
+test('日本語や % を含む id の記録・メンバーも扱う（Firestore の id は / 以外の字を使える。検証環境に実在する。11/20）', async () => {
+  const 和 = 'ses-型検証-%41';
+  const 他 = '他-%zz';
+  const 文書 = 団体の文書({
+    [`/groups/${団体}/sessions/${和}`]: {
+      lastModified: 時(3000),
+      archers: [{ id: 'a', name: '山田 太郎', memberId: 'm1', marks: ['○'] }],
+    },
+    [`/groups/${団体}/sessions/${他}`]: {
+      lastModified: 時(3000),
+      archers: [{ id: 'b', name: '佐藤 花子', memberId: 'm2', marks: ['○'] }],
+    },
+  });
+  const 差分 = await 呼ぶ({ 団体, 形: '差分', 境目: { 記録: 時(2500).getTime() } }, 文書);
+  assert.strictEqual(差分.状態, 200);
+  assert.deepStrictEqual(差分.中身.記録.map((r) => r.id), [和], '% を戻して id を壊した');
+  assert.deepStrictEqual(差分.中身.外す, [他]);
+  const id = await 呼ぶ({ 団体, 形: 'id', ids: [和, 他, '無い-日本語'] }, 文書);
+  assert.strictEqual(id.状態, 200, '日本語の id を断った');
+  assert.deepStrictEqual(id.中身.記録.map((r) => r.id), [和]);
+  assert.deepStrictEqual(id.中身.外す.sort(), [他, '無い-日本語'].sort());
+  // 続きの名前に日本語の id（ページの切れ目がこの記録でも続きを読める）
+  const 続き = await 呼ぶ({ 団体, 形: '全部', 続き: { 名: `${根の名}/groups/${団体}/sessions/${和}` } }, 文書);
+  assert.strictEqual(続き.状態, 200, '日本語の id の続きを断った');
+  // / を含む id・続きは断る
+  assert.strictEqual((await 呼ぶ({ 団体, 形: 'id', ids: ['a/b'] }, 文書)).状態, 400);
+  assert.strictEqual(
+    (await 呼ぶ({ 団体, 形: '全部', 続き: { 名: `${根の名}/groups/${団体}/sessions/a/b` } }, 文書)).状態,
+    400
+  );
+  // メンバーの id が日本語でも、名簿を読めて自分の行が分かる
+  const 和の人 = 団体の文書({
+    [`/member_claims/${本人.sub}`]: { groupId: 団体, memberId: '部員-一', personalId: 'K7MP3X' },
+    [`/groups/${団体}/members/部員-一`]: { id: '部員-一', name: '鈴木 一' },
+    [`/groups/${団体}/sessions/s7`]: {
+      lastModified: 時(4000),
+      archers: [{ id: 'c', name: '鈴木 一', memberId: '部員-一', marks: ['×'] }],
+    },
+  });
+  const 和の答え = await 呼ぶ({ 団体, 形: '差分', 境目: { 記録: 時(3500).getTime() } }, 和の人);
+  assert.strictEqual(和の答え.状態, 200, '日本語の id のメンバーを断った');
+  assert.deepStrictEqual(和の答え.中身.記録.map((r) => r.id), ['s7']);
+});
+
+test('1 ページの数：頼まれなければ 5 件。答えの大きさから次の件を返す（大きい記録は少なく・小さい記録は 25 件まで。11/20）', async () => {
+  const 記録たち = (数, 射) => {
+    const 出 = {};
+    for (let i = 0; i < 数; i++)
+      // 名前の順で s1・s2（小さい記録）より先に並ぶ id にする（最初のページが全部この大きさになるように）
+      出[`/groups/${団体}/sessions/b${String(i).padStart(2, '0')}`] = {
+        lastModified: 時(20000 + i),
+        archers: Array.from({ length: 30 }, (_, j) => ({
+          id: 'a' + j,
+          name: j === 0 ? '山田 太郎' : '人' + j,
+          memberId: j === 0 ? 'm1' : 'x' + j,
+          marks: Array.from({ length: 射 }, () => '○'),
+          arrowLocations: Array.from({ length: 射 }, () => ({ x: 0.1, y: 0.2, t: 'kasumi36' })),
+        })),
+      };
+    return 出;
+  };
+  // 小さい記録：最初は 5 件、次の件は 25
+  const 小 = await 呼ぶ({ 団体, 形: '全部' }, 団体の文書(記録たち(12, 1)));
+  assert.strictEqual(小.中身.記録.length + 小.中身.外す.length, 初めの件);
+  assert.strictEqual(小.中身.次の件, ページ);
+  // 大きい記録（30 人 × 40 射の矢所つき）：次の件は少なく
+  const 大 = await 呼ぶ({ 団体, 形: '全部' }, 団体の文書(記録たち(12, 40)));
+  assert.strictEqual(大.中身.記録.length + 大.中身.外す.length, 初めの件);
+  assert.ok(大.中身.次の件 >= 1 && 大.中身.次の件 < 初めの件, '大きい記録なのに次の件を減らさない：' + 大.中身.次の件);
+  // 件は 1〜25 に収める。id は 5 件まで
+  const 多すぎ = await 呼ぶ({ 団体, 形: '全部', 件: 999 }, 団体の文書(記録たち(30, 1)));
+  assert.strictEqual(多すぎ.中身.記録.length + 多すぎ.中身.外す.length, ページ);
+  assert.strictEqual(idの上限, 5);
+  assert.strictEqual((await 呼ぶ({ 団体, 形: 'id', ids: ['a', 'b', 'c', 'd', 'e', 'f'] })).状態, 400);
 });

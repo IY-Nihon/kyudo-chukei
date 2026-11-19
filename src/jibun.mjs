@@ -10,17 +10,20 @@
  *
  * ■ 受けるもの
  *   POST /jibun  Authorization: Bearer <部員のログインの証（匿名の口座）>
- *   体: {"団体": "<groups の鍵>", "形": "差分"|"全部"|"id", "境目": {"記録": ms, "ごみ箱": ms}, "続き": {...}, "ids": [...]}
+ *   体: {"団体": "<groups の鍵>", "形": "差分"|"全部"|"id", "境目": {"記録": ms, "ごみ箱": ms}, "続き": {...}, "ids": [...],
+ *        "件": 数}  件 … このページで読む数（1〜25。無ければ 5。前のページの答えの 次の件 をそのまま入れる）
  *     差分 … 境目より後に変わった記録（lastModified が日時型のもの。アプリの差分の同期と同じ）と、ゴミ箱へ移った記録の id
  *     全部 … 全部の記録（文書の名前の順に、続きで分けて）
- *     id   … その id の記録（30 件まで。端末の控えから外した記録の取り直し）
+ *     id   … その id の記録（5 件まで。端末の控えから外した記録の取り直し）
  * ■ 返す（200）
- *   {"記録": [...], "外す": [id], "消えた": [{"id", "時"}], "続き": {...}|null, "境目": {"記録": ms, "ごみ箱": ms}}
+ *   {"記録": [...], "外す": [id], "消えた": [{"id", "時"}], "続き": {...}|null, "境目": {"記録": ms, "ごみ箱": ms},
+ *    "次の件": 数}
  *     記録 … その人の写っている記録を、その人の行だけにしたもの（日時はミリ秒）
  *     外す … 読んだが、その人の写っていない（写らなくなった）記録・無かった記録の id（端末から外す）
  *     消えた … ゴミ箱へ移った記録の id とその時刻（差分の最初のページだけ。端末は、それより後に直した手元の記録は残す）
  *     続き … まだ続きがあれば、次に体へそのまま入れる。無ければ null
  *     境目 … このページで読んだ文書の lastModified（日時型）のいちばん新しいもの。端末はページをまたいで大きい方を取る
+ *     次の件 … 次のページで頼むとよい数。このページの答えの大きさから決める（大きい記録なら少なく。下の「無料枠」）
  *   ほかの状態: 400 形が違う・403 匿名でない／所属の証が無い・429 呼びすぎ（index.mjs）・503 Firestore に届かない
  *   鍵（FIREBASE_SA_KEYS）が置かれていなければ 404（古い中継と同じ。アプリは前の道で記録を直接読む）
  *
@@ -29,21 +32,34 @@
  *
  * ■ 無料枠
  *   1 回で Firestore を 3 回（証・帳面・名簿）と記録の 1 ページ（25 件まで）読む。Workers の無料枠は 1 回の CPU が
- *   10ms なので、ページを小さくし、絞るときは要る欄だけ作る
+ *   10ms。答えの字を読む（JSON）のが重く、手元で測ると 1 ページの答えが 500KB で約 2ms、射手 30 人 × 40 射の矢所つき
+ *   （1 件約 160KB）は 25 件で約 24ms だった（11/20）。だから最初のページは 5 件にし、答えの大きさから次の件数を決めて返す
+ *  （ふつうの記録ならすぐ 25 件ずつ、矢所つきの大きい記録なら少しずつ）。絞るときは要る欄だけ作る
  */
 
 import { サービスアカウントを選ぶ, サービスの証, 猶予の終わり, 四桁の終わり } from './kojin.mjs';
 
-/** 1 回で返す記録の数（CPU の上限に収めるため小さく） */
+/** 1 回で返す記録の数の上限（CPU の上限に収めるため。上の「無料枠」） */
 export const ページ = 25;
-/** id で取り直すときの上限（端末も 30 件ずつ頼む） */
-export const idの上限 = 30;
+/** 件を頼まれないときの 1 ページの数（最初のページ。記録の大きさが分からないので小さく） */
+export const 初めの件 = 5;
+/** 1 ページの答えの大きさの目安（字の数）。次の件はこれに収まるように決める */
+export const 目安の大きさ = 500 * 1024;
+/** id で取り直すときの上限（端末も 5 件ずつ頼む） */
+export const idの上限 = 5;
 /** 差分の最初のページで見るゴミ箱の数 */
 export const ごみ箱の上限 = 300;
 /** 他の人の氏名の代わり（アプリの src/chatScope.js と同じ） */
 export const 他の人 = '（他の人）';
 
+/** 団体の鍵の形（groups の鍵。6 桁の団体 ID など） */
 const IDの形 = /^[0-9A-Za-z_-]{1,64}$/;
+/**
+ * 記録・メンバーの id として受けてよいか。Firestore の文書の id は / 以外の字を何でも使える（検証環境には日本語の id の
+ * 記録がある）ので、字の種類では絞らない。/ を含まない・. と .. でない・長すぎない、だけを見る（11/20 の見直し）
+ */
+const 文書のidか = (id) =>
+  typeof id === 'string' && id.length > 0 && id.length <= 400 && !id.includes('/') && id !== '.' && id !== '..';
 const 四桁の形 = /^[0-9]{4}$/;
 
 // ── Firestore の REST の値を、ふつうの値に直す（日時はミリ秒） ──
@@ -75,7 +91,10 @@ const 日時の字 = (文書) => {
   const 欄 = 文書 && 文書.fields && 文書.fields.lastModified;
   return 欄 && typeof 欄.timestampValue === 'string' ? 欄.timestampValue : null;
 };
-const 文書のid = (文書) => decodeURIComponent(String((文書 && 文書.name) || '').split('/').pop());
+// Firestore の REST は、名前の中の id をそのまま返す（% で表さない。まとめて取るときも、そのままの名前でしか見つからない）。
+// だから %を戻さない（% を含む id を壊し、% の後ろが数字でないと落ちる。11/20 の見直し）
+const 名のid = (名) => String(名 || '').split('/').pop();
+const 文書のid = (文書) => 名のid(文書 && 文書.name);
 
 // ── その人の行だけにする（アプリの src/syncRules.js の 自分の射手か・src/statsRules.js・src/chatScope.js と同じ決まり） ──
 
@@ -197,7 +216,7 @@ export function 自分の行だけにする(記録, 自分id, 自分名) {
 function 続きを読む(続き, 記録の根, 形) {
   if (!続き || typeof 続き !== 'object') return null;
   const 名 = String(続き.名 || '');
-  if (!名.startsWith(記録の根) || !IDの形.test(名.slice(記録の根.length))) return null;
+  if (!名.startsWith(記録の根) || !文書のidか(名.slice(記録の根.length))) return null;
   if (形 === '差分') {
     const 時 = String(続き.時 || '');
     if (!/^\d{4}-\d{2}-\d{2}T[\d:.]+Z$/.test(時)) return null;
@@ -230,12 +249,13 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
   const 記録の境目 = Math.max(0, Number(境目.記録) || 0);
   const ごみ箱の境目 = Math.max(0, Number(境目.ごみ箱) || 0);
   const ids = 形 === 'id' ? (Array.isArray(体.ids) ? 体.ids.map(String) : []) : [];
-  if (形 === 'id' && (!ids.length || ids.length > idの上限 || !ids.every((id) => IDの形.test(id))))
+  if (形 === 'id' && (!ids.length || ids.length > idの上限 || !ids.every(文書のidか)))
     return { 状態: 400, 中身: { error: 'id の形が違います' } };
   const 文書の根 = `projects/${本人.aud}/databases/(default)/documents`;
   const 記録の根 = `${文書の根}/groups/${団体}/sessions/`;
   const 続き = 体 && 体.続き ? 続きを読む(体.続き, 記録の根, 形) : null;
   if (体 && 体.続き && !続き) return { 状態: 400, 中身: { error: '続きの形が違います' } };
+  const 件 = Math.min(ページ, Math.max(1, Math.floor(Number(体 && 体.件) || 初めの件)));
 
   const 送る = 道具.送る || fetch;
   const 今 = 道具.今 || Date.now();
@@ -253,14 +273,18 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
     if (!r.ok) throw new Error('届かない ' + r.status);
     return r.json();
   };
-  const 問う = async (問い) => {
+  /** 記録の答えの大きさ（字の数。次の件を決める） */
+  let 答えの大きさ = 0;
+  const 問う = async (問い, 大きさを数える = false) => {
     const r = await 送る(`${根}/groups/${団体}:runQuery`, {
       method: 'POST',
       headers: 頭,
       body: JSON.stringify({ structuredQuery: 問い }),
     });
     if (!r.ok) throw new Error('届かない ' + r.status);
-    const 行たち = await r.json();
+    const 字の答え = await r.text();
+    if (大きさを数える) 答えの大きさ = 字の答え.length;
+    const 行たち = JSON.parse(字の答え);
     return (Array.isArray(行たち) ? 行たち : []).map((行) => 行 && 行.document).filter(Boolean);
   };
 
@@ -272,14 +296,15 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
     ]);
     const 証の欄 = (証の文書 && 証の文書.fields) || {};
     const memberId = 字(証の欄.memberId);
-    if (!証の文書 || 字(証の欄.groupId) !== 団体 || !IDの形.test(memberId))
+    if (!証の文書 || 字(証の欄.groupId) !== 団体 || !文書のidか(memberId))
       return { 状態: 403, 中身: { error: 'この団体の所属の証がありません' } };
     if (四桁の形.test(字(証の欄.personalId)) && 今 >= 四桁の終わり)
       return { 状態: 403, 中身: { error: '4 桁の個人ID は使えなくなりました' } };
     const 帳面の欄 = (帳面 && 帳面.fields) || {};
     if (!帳面 || !(真偽(帳面の欄.verified) || 今 < 猶予の終わり))
       return { 状態: 403, 中身: { error: '団体のメールアドレスの確認がまだです' } };
-    const 部員 = await 読む(`/groups/${団体}/members/${memberId}`);
+    // URL の道には % で表して入れる（id に ? や # や日本語が入っていても届くように）
+    const 部員 = await 読む(`/groups/${団体}/members/${encodeURIComponent(memberId)}`);
     if (!部員) return { 状態: 403, 中身: { error: '名簿にいません' } };
     const 自分名 = 字(部員.fields && 部員.fields.name);
 
@@ -299,28 +324,31 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
       const 返り = await r.json();
       for (const 一つ of Array.isArray(返り) ? 返り : []) {
         if (一つ && 一つ.found) 文書たち.push(一つ.found);
-        else if (一つ && 一つ.missing) 無かったid.push(decodeURIComponent(String(一つ.missing).split('/').pop()));
+        else if (一つ && 一つ.missing) 無かったid.push(名のid(一つ.missing));
       }
     } else if (形 === '差分') {
-      文書たち = await 問う({
-        from: [{ collectionId: 'sessions' }],
-        where: {
-          fieldFilter: {
-            field: { fieldPath: 'lastModified' },
-            op: 'GREATER_THAN_OR_EQUAL',
-            value: { timestampValue: new Date(記録の境目).toISOString() },
+      文書たち = await 問う(
+        {
+          from: [{ collectionId: 'sessions' }],
+          where: {
+            fieldFilter: {
+              field: { fieldPath: 'lastModified' },
+              op: 'GREATER_THAN_OR_EQUAL',
+              value: { timestampValue: new Date(記録の境目).toISOString() },
+            },
           },
+          orderBy: [
+            { field: { fieldPath: 'lastModified' }, direction: 'ASCENDING' },
+            { field: { fieldPath: '__name__' }, direction: 'ASCENDING' },
+          ],
+          limit: 件,
+          ...(続き
+            ? { startAt: { values: [{ timestampValue: 続き.時 }, { referenceValue: 続き.名 }], before: false } }
+            : {}),
         },
-        orderBy: [
-          { field: { fieldPath: 'lastModified' }, direction: 'ASCENDING' },
-          { field: { fieldPath: '__name__' }, direction: 'ASCENDING' },
-        ],
-        limit: ページ,
-        ...(続き
-          ? { startAt: { values: [{ timestampValue: 続き.時 }, { referenceValue: 続き.名 }], before: false } }
-          : {}),
-      });
-      if (文書たち.length === ページ) {
+        true
+      );
+      if (文書たち.length === 件) {
         const 最後 = 文書たち[文書たち.length - 1];
         次 = { 名: 最後.name, 時: 日時の字(最後) };
       }
@@ -346,13 +374,16 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
         }
       }
     } else {
-      文書たち = await 問う({
-        from: [{ collectionId: 'sessions' }],
-        orderBy: [{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }],
-        limit: ページ,
-        ...(続き ? { startAt: { values: [{ referenceValue: 続き.名 }], before: false } } : {}),
-      });
-      if (文書たち.length === ページ) 次 = { 名: 文書たち[文書たち.length - 1].name };
+      文書たち = await 問う(
+        {
+          from: [{ collectionId: 'sessions' }],
+          orderBy: [{ field: { fieldPath: '__name__' }, direction: 'ASCENDING' }],
+          limit: 件,
+          ...(続き ? { startAt: { values: [{ referenceValue: 続き.名 }], before: false } } : {}),
+        },
+        true
+      );
+      if (文書たち.length === 件) 次 = { 名: 文書たち[文書たち.length - 1].name };
       // 全部のときは、ゴミ箱の境目もここで決める（いちばん新しい 1 件の時刻だけ読む）
       if (!続き) {
         const 最新 = await 問う({
@@ -390,6 +421,11 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
         消えた,
         続き: 次,
         境目: { 記録: 記録の最新, ごみ箱: ごみ箱の最新 },
+        // 次に頼むとよい数。このページの 1 件あたりの大きさで、目安の大きさに収まる数（1〜25）
+        次の件: Math.min(
+          ページ,
+          Math.max(1, Math.floor((件 * 目安の大きさ) / Math.max(1, 答えの大きさ)))
+        ),
       },
     };
   } catch {
