@@ -383,3 +383,26 @@ test('所属の確かめは 60 秒控え、続けて呼ばれたら証・帳面�
   assert.strictEqual(よそ.状態, 403);
   確かめの控えを忘れる();
 });
+
+test('前の版の矢所（0・1・2…を鍵にした表）も、自分の射の分を並びで返す（11/20）', () => {
+  const 出 = 自分の行だけにする(
+    {
+      id: 's1',
+      archers: [
+        {
+          id: 'a1',
+          name: '山田 太郎',
+          memberId: 'm1',
+          marks: ['○', '×'],
+          arrowLocations: { 0: { x: 0.1, y: 0.2 }, 1: { x: 0.3, y: 0.4 } },
+        },
+      ],
+    },
+    'm1',
+    '山田 太郎'
+  );
+  assert.deepStrictEqual(出.archers[0].arrowLocations, [
+    { x: 0.1, y: 0.2 },
+    { x: 0.3, y: 0.4 },
+  ]);
+});

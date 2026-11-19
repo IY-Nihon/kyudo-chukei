@@ -155,6 +155,21 @@ function その射の名前(射手, 射目) {
   return 名前;
 }
 
+/**
+ * 矢所を並びにする。前の版の記録には「0・1・2…」を鍵にした表の形がある（アプリの syncRules の normalizeArrowLocations も
+ * 並びに直して使う）。並びでも表でもなければ空（11/20 の見直し）。○× は並びのときだけ使う（アプリも保存した記録では
+ * 並びでない ○× を空として扱う。syncRules の 記録の射手を整える）
+ */
+function 矢所の並び(値) {
+  if (Array.isArray(値)) return 値;
+  if (!値 || typeof 値 !== 'object') return [];
+  const 鍵たち = Object.keys(値);
+  if (!鍵たち.length || !鍵たち.every((鍵) => /^\d+$/.test(鍵))) return [];
+  const 出 = Array(Math.max(...鍵たち.map(Number)) + 1).fill(null);
+  for (const 鍵 of 鍵たち) 出[Number(鍵)] = 値[鍵];
+  return 出;
+}
+
 /** 自分の列を、自分の射と自分の名前だけにする（chatScope の 射手を絞る と同じ） */
 function 射手を絞る(射手, 自分id, 自分名) {
   const 自分の名前か = (名前) => !!名前 && !!自分名 && 名前 === 自分名;
@@ -172,7 +187,7 @@ function 射手を絞る(射手, 自分id, 自分名) {
     (自分id && その射の部員id(射手, 射目) === 自分id) ||
     (自分名 && !その射の部員id(射手, 射目) && 自分の名前か(その射の名前(射手, 射目)));
   const 印たち = Array.isArray(射手.marks) ? 射手.marks : [];
-  const 矢所たち = Array.isArray(射手.arrowLocations) ? 射手.arrowLocations : [];
+  const 矢所たち = 矢所の並び(射手.arrowLocations);
   const 絞った矢所 = 矢所たち.map((矢所, 射目) => (矢所 && 自分の射か(射目) ? 矢所 : null));
   return {
     id: 射手.id,
