@@ -31,15 +31,28 @@ async function 偽のサービスアカウント(企画 = 'kyudoscoremanager-stg
   };
 }
 
-/** 偽の雲。持ち主の証（owner-token）だけが private を読める。印の書き消しを控える */
+/** 偽の雲。持ち主の証（owner-token）だけが private を読める。印の書き消しを控える。
+ * 部員の証（member-token）では、自分の所属の証・名簿（名簿にいる人だけ）・役の文書を読める */
 function 偽の雲() {
   const 印 = new Map();
+  const 部員 = { 証: { groupId: 'G1', memberId: 'm1' }, 名簿: new Set(['m1']), 役: null };
+  const 返す = (中身, status = 200) => new Response(JSON.stringify(中身), { status });
   const 送る = async (url, 頼み = {}) => {
     if (url === 'https://oauth2.googleapis.com/token')
       return new Response(JSON.stringify({ access_token: 'sa-token', expires_in: 3600 }), { status: 200 });
     const 道 = decodeURIComponent(url.replace(/^.*\/documents/, ''));
     if (道.includes('/private/')) {
       return new Response('{}', { status: 頼み.headers.Authorization === 'Bearer owner-token' ? 404 : 403 });
+    }
+    if (頼み.headers.Authorization === 'Bearer member-token' && !頼み.method) {
+      if (道 === '/member_claims/u1')
+        return 部員.証
+          ? 返す({ fields: { groupId: { stringValue: 部員.証.groupId }, memberId: { stringValue: 部員.証.memberId } } })
+          : 返す({}, 404);
+      const 名簿 = 道.match(/^\/groups\/G1\/members\/(.+)$/);
+      if (名簿) return 返す({}, 部員.名簿.has(名簿[1]) ? 200 : 403);
+      if (道 === '/groups/G1/config/roles') return 部員.役 ? 返す({ fields: 部員.役 }) : 返す({}, 404);
+      return 返す({}, 403);
     }
     assert.strictEqual(頼み.headers.Authorization, 'Bearer sa-token', '印はサービスアカウントで書く');
     if (頼み.method === 'PATCH') {
@@ -52,7 +65,7 @@ function 偽の雲() {
     }
     return new Response('{}', { status: 404 });
   };
-  return { 送る, 印 };
+  return { 送る, 印, 部員 };
 }
 
 function 偽の置き場() {
@@ -138,4 +151,55 @@ test('変える：今の合言葉が合うか、入り直した直後なら変�
   assert.equal((await 呼ぶ({ 操作: '入る', 合言葉: 'newpass2' })).中身.結果, '入れた');
   await 呼ぶ({ 操作: '出る' });
   assert.equal(雲.印.size, 0);
+});
+
+/** REST の役の文書の欄 */
+const 役の欄 = (役, 割り当て) => ({
+  役: {
+    mapValue: {
+      fields: Object.fromEntries(
+        Object.entries(役).map(([id, 部品]) => [
+          id,
+          { mapValue: { fields: { 名: { stringValue: id }, 部品: { arrayValue: { values: 部品.map((字) => ({ stringValue: 字 })) } } } } },
+        ])
+      ),
+    },
+  },
+  割り当て: { mapValue: { fields: Object.fromEntries(Object.entries(割り当て).map(([m, r]) => [m, { stringValue: r }])) } },
+});
+
+test('運営の役の人（11/19）：様子・入る・出るは使える。作る・変えるは団体の持ち主だけ', async () => {
+  const { 呼ぶ, 雲 } = await 用意();
+  await 呼ぶ({ 操作: '作る', 新しい: 'abcdef12' });
+  雲.印.clear();
+  雲.部員.役 = 役の欄({}, { m1: 'unei' });
+  const 部員で = { 証: 'member-token' };
+  assert.equal((await 呼ぶ({ 操作: '様子' }, 部員で)).中身.合言葉あり, true);
+  assert.equal((await 呼ぶ({ 操作: '入る', 合言葉: 'xxxxxx' }, 部員で)).中身.結果, '違う');
+  const 入った = await 呼ぶ({ 操作: '入る', 合言葉: 'abcdef12' }, 部員で);
+  assert.equal(入った.中身.結果, '入れた');
+  assert.ok(雲.印.has('/admin_sessions/G1_u1'), '印を書いていない');
+  assert.equal((await 呼ぶ({ 操作: '作る', 新しい: 'zzzzzz99' }, 部員で)).状態, 403);
+  assert.equal((await 呼ぶ({ 操作: '変える', 今の: 'abcdef12', 新しい: 'zzzzzz99' }, 部員で)).状態, 403);
+  await 呼ぶ({ 操作: '出る' }, 部員で);
+  assert.equal(雲.印.size, 0);
+});
+
+test('役の無い部員・合言葉の要る部品の無い役・名簿にいない人・ほかの団体の証は断る。作った役でも部品があれば通す', async () => {
+  const { 呼ぶ, 雲 } = await 用意();
+  await 呼ぶ({ 操作: '作る', 新しい: 'abcdef12' });
+  const 部員で = { 証: 'member-token' };
+  assert.equal((await 呼ぶ({ 操作: '様子' }, 部員で)).状態, 403, '役の文書が無い（部員（自分））のに通した');
+  雲.部員.役 = 役の欄({ r_kakari: ['付ける', '出欠'] }, { m1: 'r_kakari' });
+  assert.equal((await 呼ぶ({ 操作: '様子' }, 部員で)).状態, 403, '出欠の係を通した');
+  雲.部員.役 = 役の欄({ r_meibo: ['メンバー'] }, { m1: 'r_meibo' });
+  assert.equal((await 呼ぶ({ 操作: '様子' }, 部員で)).状態, 200, 'メンバーの部品のある役を通さない');
+  雲.部員.役 = 役の欄({}, { m1: 'r_kesita' });
+  assert.equal((await 呼ぶ({ 操作: '様子' }, 部員で)).状態, 403, '消した役（部員（自分））を通した');
+  雲.部員.役 = 役の欄({}, { m1: 'unei' });
+  雲.部員.名簿.clear();
+  assert.equal((await 呼ぶ({ 操作: '様子' }, 部員で)).状態, 403, '名簿にいない人を通した');
+  雲.部員.名簿.add('m1');
+  雲.部員.証 = { groupId: 'G2', memberId: 'm1' };
+  assert.equal((await 呼ぶ({ 操作: '様子' }, 部員で)).状態, 403, 'ほかの団体の証を通した');
 });

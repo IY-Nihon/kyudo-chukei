@@ -22,6 +22,11 @@
  *
  * ■ 試しすぎ
  *   団体ごとに、まちがいを数える。5 回まちがえると 15 分止める（合えば数を戻す）。
+ *
+ * ■ 運営の役の人（2026-11-19 本人「求める」）
+ *   個人ログインの人も、役に合言葉の要る部品（直す・メンバー）があれば、様子・入る・出る を使える（作る・変えるは
+ *   団体の持ち主だけ）。役は呼んだ人の証で読む（自分の所属の証・名簿・config/roles。決まりが通すものだけ）。
+ *   使うときは決まり（firestore.rules の memberAdmin）がもう一度、部品と印を見る。
  */
 
 import { サービスアカウントを選ぶ, サービスの証 } from './kojin.mjs';
@@ -37,6 +42,33 @@ export const 止める長さ = 15 * 60 * 1000;
 /** 入り直した直後とみなす長さ（作る・忘れたときの作り直し） */
 export const 入り直しの長さ = 5 * 60 * 1000;
 const 回数 = 100000;
+
+/** 最初の 4 つの役の部品（app の src/yaku.js・firestore.rules の presetParts と同じ） */
+export const 最初の役の部品 = {
+  jibun: ['付ける'],
+  zenin: ['全員を見る', '付ける'],
+  miru: ['全員を見る'],
+  unei: ['全員を見る', '付ける', '直す', '消す', 'メンバー', '出欠', '設定'],
+};
+/** 管理者の合言葉が要る操作の部品（app の src/yaku.js の 操作 で 合言葉 のもの） */
+export const 合言葉の要る部品 = ['直す', 'メンバー'];
+
+const 字の欄 = (欄) => (欄 && typeof 欄.stringValue === 'string' ? 欄.stringValue : '');
+const 地図の欄 = (欄) => (欄 && 欄.mapValue && 欄.mapValue.fields) || {};
+const 一覧の欄 = (欄) =>
+  欄 && 欄.arrayValue ? (Array.isArray(欄.arrayValue.values) ? 欄.arrayValue.values.map(字の欄) : []) : null;
+
+/**
+ * config/roles の欄（REST の fields）から、そのメンバーの役の部品。決まりの memberParts と同じ読み方
+ * （割り当てが無い・消した役の人は 部員（自分））
+ */
+export function 役の部品(欄, memberId) {
+  const 割り当て = 地図の欄(欄 && 欄['割り当て']);
+  const 役id = 字の欄(割り当て[memberId]) || 'jibun';
+  const 役 = 地図の欄(欄 && 欄['役']);
+  const 部品 = 役[役id] ? 一覧の欄(地図の欄(役[役id])['部品']) : null;
+  return 部品 || 最初の役の部品[役id] || 最初の役の部品.jibun;
+}
 
 const b64 = (バイト) => btoa(String.fromCharCode(...new Uint8Array(バイト)));
 const b64をバイトに = (字) => Uint8Array.from(atob(字), (c) => c.charCodeAt(0));
@@ -113,13 +145,41 @@ export async function 管理者を確かめる(request, env, 本人, 証, 道具
   if (!置き場) return { 状態: 503, 中身: { error: 'いまは確かめられません' } };
   const 根 = `https://firestore.googleapis.com/v1/projects/${本人.aud}/databases/(default)/documents`;
 
-  // 持ち主か：その人の証で、団体の private（持ち主だけが読める）を読めるか。文書が無くても読むのを許されれば 404
+  // 持ち主か：その人の証で、団体の private（持ち主だけが読める）を読めるか。文書が無くても読むのを許されれば 404。
+  // 持ち主でなければ、運営の役の人か（所属の証・名簿・役をその人の証で読む）。どちらでもなければ断る
+  const 呼んだ人の証 = { headers: { Authorization: 'Bearer ' + 証 } };
+  const 届かない = () => {
+    throw new Error('届かない');
+  };
+  const 読む = async (道) => {
+    const r = await 送る(`${根}/${道}`, 呼んだ人の証);
+    if (r.status >= 500 || r.status === 429) 届かない();
+    return r;
+  };
+  let 持ち主 = false;
   try {
-    const r = await 送る(`${根}/group_accounts/${団体}/private/_kanri`, {
-      headers: { Authorization: 'Bearer ' + 証 },
-    });
-    if (r.status >= 500 || r.status === 429) throw new Error('届かない');
-    if (!(r.ok || r.status === 404)) return { 状態: 403, 中身: { error: '団体の持ち主だけが使えます' } };
+    const r = await 読む(`group_accounts/${団体}/private/_kanri`);
+    持ち主 = r.ok || r.status === 404;
+    if (!持ち主) {
+      const 証の文書 = await 読む(`member_claims/${encodeURIComponent(本人.sub)}`);
+      const 証の欄 = 証の文書.ok ? (await 証の文書.json()).fields || {} : {};
+      const memberId = 字の欄(証の欄.memberId);
+      let 運営 = false;
+      if (字の欄(証の欄.groupId) === 団体 && memberId) {
+        // 名簿にいるか（退部した人の証は通さない。決まりの isClaimedMember と同じ）。読めなければ所属の証が効いていない
+        const 名簿 = await 読む(`groups/${団体}/members/${encodeURIComponent(memberId)}`);
+        if (名簿.ok) {
+          const 役の文書 = await 読む(`groups/${団体}/config/roles`);
+          if (!(役の文書.ok || 役の文書.status === 404)) 届かない();
+          const 欄 = 役の文書.ok ? (await 役の文書.json()).fields || {} : {};
+          運営 = 役の部品(欄, memberId).some((部品) => 合言葉の要る部品.includes(部品));
+        }
+      }
+      if (!運営) return { 状態: 403, 中身: { error: '団体の持ち主と、合言葉の要る役の人だけが使えます' } };
+      // 合言葉を作る・変えるのは団体の持ち主だけ（11/13 本人：パスワードまわりは団体の口座だけ）
+      if (操作 === '作る' || 操作 === '変える')
+        return { 状態: 403, 中身: { error: '合言葉を作る・変えるのは団体のアカウントだけです' } };
+    }
   } catch {
     return { 状態: 503, 中身: { error: 'いまは確かめられません。少し待ってからお試しください' } };
   }
