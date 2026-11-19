@@ -143,7 +143,10 @@ export default {
       if (!(await 回数に収まるか({ sub: '管理:' + 本人.sub }, env.RATE_KOJIN)))
         return 答える({ error: '呼びすぎです。1 分ほど待ってからお試しください' }, 429, 許す出どころ);
       if (await 印で止めるか()) return 印で断る();
-      const 結果 = await 管理者を確かめる(request, env, 本人, 証);
+      // 端末の App Check の印も渡す（その人の証で Firestore を読むときに添える。強いていると、無ければ断られる）
+      const 結果 = await 管理者を確かめる(request, env, 本人, 証, {
+        印: request.headers.get('X-Firebase-AppCheck') || '',
+      });
       return 答える(結果.中身, 結果.状態, 許す出どころ);
     }
 

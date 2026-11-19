@@ -4,8 +4,14 @@
  * ■ なぜ
  *   前の管理者モードは画面の鍵だけで、団体の口座でログインした端末は決まり上なんでもできた。
  *   合言葉はここ（中継）だけが知り、合っていたら、その口座（uid）に期限つきの「管理者」の印を
- *   Firestore の admin_sessions/{団体}_{uid} に書く。決まり（firestore.rules の isGroupAdmin）は、
- *   消す・名簿・設定などをこの印のある口座だけに通す。印は端末からは書けない（決まりで write: false）。
+ *   Firestore の admin_sessions/{団体}_{uid} に書く。決まり（firestore.rules の isGroupAdmin・memberAdmin）は、
+ *   前から管理者モードの中にあった操作のうち決まりで見分けられるもの（招待リンク・役を決める・運営の人の直す・個人ID）を
+ *   この印のある口座だけに通す（11/18 本人：合言葉で守る範囲は前の管理者モードのまま）。印は端末からは書けない（write: false）。
+ *
+ * ■ App Check
+ *   その人の証で Firestore を読むときは、端末の App Check の印（X-Firebase-AppCheck）を添える。本番は Firestore で
+ *   App Check を強いているので、印の無い読みは断られ、持ち主も「持ち主でない」になる（11/19 の見直しで気づいた。index.mjs の
+ *   通してよい人か と同じ。11/13）
  *
  * ■ 合言葉の置き場
  *   D1 の kanri（鍵 → 値）に、塩つきの PBKDF2-SHA256（10 万回）だけを置く。端末にも Firestore にも置かない
@@ -122,7 +128,8 @@ export function D1の置き場(db) {
  * @param {object} env FIREBASE_SA_KEYS・KAIZEN_DB
  * @param {{sub: string, aud: string, email?: string, auth_time?: number, firebase?: object}} 本人
  * @param {string} 証 呼んだ人のログインの証（持ち主かを、その人の証で private を読めるかで確かめる）
- * @param {{送る?: Function, 今?: number, 置き場?: {読む: Function, 書く: Function}}} 道具
+ * @param {{送る?: Function, 今?: number, 置き場?: {読む: Function, 書く: Function}, 印?: string}} 道具
+ *   印 … 端末の App Check の印（その人の証で読むときに添える）
  */
 export async function 管理者を確かめる(request, env, 本人, 証, 道具 = {}) {
   const 鍵束 = サービスアカウントを選ぶ(env.FIREBASE_SA_KEYS, 本人.aud);
@@ -147,7 +154,9 @@ export async function 管理者を確かめる(request, env, 本人, 証, 道具
 
   // 持ち主か：その人の証で、団体の private（持ち主だけが読める）を読めるか。文書が無くても読むのを許されれば 404。
   // 持ち主でなければ、運営の役の人か（所属の証・名簿・役をその人の証で読む）。どちらでもなければ断る
-  const 呼んだ人の証 = { headers: { Authorization: 'Bearer ' + 証 } };
+  const 呼んだ人の証 = {
+    headers: { Authorization: 'Bearer ' + 証, ...(道具.印 ? { 'X-Firebase-AppCheck': 道具.印 } : {}) },
+  };
   const 届かない = () => {
     throw new Error('届かない');
   };

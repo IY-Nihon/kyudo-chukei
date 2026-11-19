@@ -41,6 +41,9 @@ function 偽の雲() {
     if (url === 'https://oauth2.googleapis.com/token')
       return new Response(JSON.stringify({ access_token: 'sa-token', expires_in: 3600 }), { status: 200 });
     const 道 = decodeURIComponent(url.replace(/^.*\/documents/, ''));
+    // 本番は Firestore で App Check を強いている。その人の証の読みに端末の印が無ければ断る（サービスアカウントは通す）
+    if (頼み.headers.Authorization !== 'Bearer sa-token' && 頼み.headers['X-Firebase-AppCheck'] !== 'appcheck-token')
+      return new Response('{}', { status: 403 });
     if (道.includes('/private/')) {
       return new Response('{}', { status: 頼み.headers.Authorization === 'Bearer owner-token' ? 404 : 403 });
     }
@@ -87,6 +90,7 @@ async function 用意(今 = Date.parse('2026-11-14T03:00:00Z')) {
       送る: 雲.送る,
       置き場,
       今: 中.今 || 今,
+      印: '印' in 中 ? 中.印 : 'appcheck-token',
     });
   return { 呼ぶ, 雲, 置き場, 今 };
 }
@@ -202,4 +206,10 @@ test('役の無い部員・合言葉の要る部品の無い役・名簿にい�
   雲.部員.名簿.add('m1');
   雲.部員.証 = { groupId: 'G2', memberId: 'm1' };
   assert.equal((await 呼ぶ({ 操作: '様子' }, 部員で)).状態, 403, 'ほかの団体の証を通した');
+});
+
+test('App Check（11/19 の見直し）：端末の印を、その人の証の読みに添える。添えないと持ち主も断られる', async () => {
+  const { 呼ぶ } = await 用意();
+  assert.equal((await 呼ぶ({ 操作: '様子' })).状態, 200, '印を添えた持ち主が通らない');
+  assert.equal((await 呼ぶ({ 操作: '様子' }, { 印: '' })).状態, 403, '偽の雲が印なしの読みを断っていない');
 });
