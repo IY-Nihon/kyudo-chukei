@@ -11,6 +11,7 @@
  *   POST /v1beta/models/{model}:streamGenerateContent?alt=sse
  *   GET  /v1beta/models
  *   POST /hozon・PUT /hozon/photo/{id}/{番} … アプリの改善のための保存（src/hozon.mjs）
+ *   POST /kojin（部員のログイン）・POST /kanri（管理者の合言葉）・POST /jibun（部員（自分）の記録。src/jibun.mjs）
  *   体はそのまま Gemini へ流す（読み解かない。写真が入っていて大きいので、
  *   Worker の CPU をほとんど使わずに済む）。
  *
@@ -37,6 +38,7 @@
 import { 保存を受ける, 古い保存を消す, 文の上限 } from './hozon.mjs';
 import { 部員を確かめる } from './kojin.mjs';
 import { 管理者を確かめる } from './kanri.mjs';
+import { 自分の記録を返す } from './jibun.mjs';
 import { 一日の枠に収まるか, 古い一日の数を消す } from './ichinichi.mjs';
 import { 鍵の置き場を作る, 署名を確かめる, 印を確かめる, 印を強いるか } from './kagi.mjs';
 
@@ -147,6 +149,16 @@ export default {
       const 結果 = await 管理者を確かめる(request, env, 本人, 証, {
         印: request.headers.get('X-Firebase-AppCheck') || '',
       });
+      return 答える(結果.中身, 結果.状態, 許す出どころ);
+    }
+
+    // 部員（自分）の記録（src/jibun.mjs。3 段目・2026-11-19 本人）。記録を直接読めない役の個人ログインに、その人の行だけを
+    // 渡す。所属の証は jibun.mjs が読んで確かめる。回数は人ごとに 1 分 120 回（全部を取るときは 25 件ずつ続けて呼ぶ）
+    if (url.pathname === '/jibun') {
+      if (!(await 回数に収まるか({ sub: '自分:' + 本人.sub }, env.RATE_JIBUN)))
+        return 答える({ error: '呼びすぎです。少し待ってからお試しください' }, 429, 許す出どころ);
+      if (await 印で止めるか()) return 印で断る();
+      const 結果 = await 自分の記録を返す(request, env, 本人);
       return 答える(結果.中身, 結果.状態, 許す出どころ);
     }
 

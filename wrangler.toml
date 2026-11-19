@@ -71,6 +71,13 @@ name = "RATE_KOJIN_GROUP"
 namespace_id = "1005"
 simple = { limit = 60, period = 60 }
 
+# 部員（自分）の記録（POST /jibun。src/jibun.mjs。2026-11-19）の回数の上限（人ごと・1 分）。開いた・戻った・引いた・
+# 記録が変わった印で呼ぶ。全部を取るときは 25 件ずつ続けて呼ぶので、記録が多い団体でも届かない数にする
+[[ratelimits]]
+name = "RATE_JIBUN"
+namespace_id = "1006"
+simple = { limit = 120, period = 60 }
+
 # アプリの改善のための保存（src/hozon.mjs）。文字は D1、写真・PDF は KV。2026-09-26 に作った
 [[d1_databases]]
 binding = "KAIZEN_DB"
