@@ -123,6 +123,8 @@ test('作る：入り直した直後だけ作れる。作ったら印（12 時�
   const 書いた = 雲.印.get('/admin_sessions/G1_u1');
   assert.equal(書いた.groupId.stringValue, 'G1');
   assert.equal(Date.parse(書いた.expiresAt.timestampValue), 今 + 印の長さ);
+  // 端末ごと（11/19 本人）：この証のログインの時刻を書く（決まりが今の証の auth_time と照らし合わせる）
+  assert.equal(書いた.authTime.integerValue, String(Math.floor(今 / 1000) - 60));
   assert.equal((await 呼ぶ({ 操作: '作る', 新しい: 'zzzzzz99' })).中身.結果, 'もうある');
   assert.equal((await 呼ぶ({ 操作: '様子' })).中身.合言葉あり, true);
 });

@@ -7,6 +7,9 @@
  *   Firestore の admin_sessions/{団体}_{uid} に書く。決まり（firestore.rules の isGroupAdmin・memberAdmin）は、
  *   前から管理者モードの中にあった操作のうち決まりで見分けられるもの（招待リンク・役を決める・運営の人の直す・個人ID）を
  *   この印のある口座だけに通す（11/18 本人：合言葉で守る範囲は前の管理者モードのまま）。印は端末からは書けない（write: false）。
+ *   印には、合言葉を入れた端末のログインの時刻（ID トークンの auth_time）も書き、決まりが今の証の auth_time と照らし合わせる。
+ *   団体のアカウントは何台でも同じ口座で入れるので、口座だけだとほかの端末にも効いた（11/19 本人「端末ごとにする」）。
+ *   auth_time は Google が署名した証の中の値なので、端末は書き換えられない。その端末で入り直すと時刻が変わり、印は効かなくなる
  *
  * ■ App Check
  *   その人の証で Firestore を読むときは、端末の App Check の印（X-Firebase-AppCheck）を添える。本番は Firestore で
@@ -213,6 +216,8 @@ export async function 管理者を確かめる(request, env, 本人, 証, 道具
           groupId: { stringValue: 団体 },
           uid: { stringValue: 本人.sub },
           expiresAt: { timestampValue: new Date(期限).toISOString() },
+          // この端末のログインの時刻（決まりが今の証と照らし合わせる。無い・数でない証は 0 で、決まりに合わない）
+          authTime: { integerValue: String(Number.isFinite(本人.auth_time) ? Math.floor(本人.auth_time) : 0) },
         },
       }),
     });
