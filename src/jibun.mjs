@@ -47,6 +47,16 @@ export const 初めの件 = 5;
 export const 目安の大きさ = 500 * 1024;
 /** id で取り直すときの上限（端末も 5 件ずつ頼む） */
 export const idの上限 = 5;
+/**
+ * 所属の確かめ（証・帳面・名簿の 3 回の読み）を控える長さ。全部を取るときは続けて何十回も呼ぶので、そのたびに読むと
+ * 読みの数が倍になる。控えは Worker の実体の中だけ。名簿から外された人は、長くてもこの間だけ読める（11/20 の見直し）
+ */
+export const 確かめの控えの長さ = 60 * 1000;
+const 確かめの控え = new Map();
+/** 検査で控えを空にする */
+export function 確かめの控えを忘れる() {
+  確かめの控え.clear();
+}
 /** 差分の最初のページで見るゴミ箱の数 */
 export const ごみ箱の上限 = 300;
 /** 他の人の氏名の代わり（アプリの src/chatScope.js と同じ） */
@@ -289,24 +299,33 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
   };
 
   try {
-    // 所属の証と団体の帳面（決まりの isClaimedMember と同じことを確かめる）
-    const [証の文書, 帳面] = await Promise.all([
-      読む(`/member_claims/${encodeURIComponent(本人.sub)}`),
-      読む(`/group_accounts/${団体}`),
-    ]);
-    const 証の欄 = (証の文書 && 証の文書.fields) || {};
-    const memberId = 字(証の欄.memberId);
-    if (!証の文書 || 字(証の欄.groupId) !== 団体 || !文書のidか(memberId))
-      return { 状態: 403, 中身: { error: 'この団体の所属の証がありません' } };
-    if (四桁の形.test(字(証の欄.personalId)) && 今 >= 四桁の終わり)
-      return { 状態: 403, 中身: { error: '4 桁の個人ID は使えなくなりました' } };
-    const 帳面の欄 = (帳面 && 帳面.fields) || {};
-    if (!帳面 || !(真偽(帳面の欄.verified) || 今 < 猶予の終わり))
-      return { 状態: 403, 中身: { error: '団体のメールアドレスの確認がまだです' } };
-    // URL の道には % で表して入れる（id に ? や # や日本語が入っていても届くように）
-    const 部員 = await 読む(`/groups/${団体}/members/${encodeURIComponent(memberId)}`);
-    if (!部員) return { 状態: 403, 中身: { error: '名簿にいません' } };
-    const 自分名 = 字(部員.fields && 部員.fields.name);
+    // 所属の証と団体の帳面（決まりの isClaimedMember と同じことを確かめる）。続けて呼ばれたら控えを使う
+    const 控えの鍵 = `${本人.aud}|${本人.sub}|${団体}`;
+    const 控え = 確かめの控え.get(控えの鍵);
+    let memberId;
+    let 自分名;
+    if (控え && 控え.期限 > 今) ({ memberId, 自分名 } = 控え);
+    else {
+      const [証の文書, 帳面] = await Promise.all([
+        読む(`/member_claims/${encodeURIComponent(本人.sub)}`),
+        読む(`/group_accounts/${団体}`),
+      ]);
+      const 証の欄 = (証の文書 && 証の文書.fields) || {};
+      memberId = 字(証の欄.memberId);
+      if (!証の文書 || 字(証の欄.groupId) !== 団体 || !文書のidか(memberId))
+        return { 状態: 403, 中身: { error: 'この団体の所属の証がありません' } };
+      if (四桁の形.test(字(証の欄.personalId)) && 今 >= 四桁の終わり)
+        return { 状態: 403, 中身: { error: '4 桁の個人ID は使えなくなりました' } };
+      const 帳面の欄 = (帳面 && 帳面.fields) || {};
+      if (!帳面 || !(真偽(帳面の欄.verified) || 今 < 猶予の終わり))
+        return { 状態: 403, 中身: { error: '団体のメールアドレスの確認がまだです' } };
+      // URL の道には % で表して入れる（id に ? や # や日本語が入っていても届くように）
+      const 部員 = await 読む(`/groups/${団体}/members/${encodeURIComponent(memberId)}`);
+      if (!部員) return { 状態: 403, 中身: { error: '名簿にいません' } };
+      自分名 = 字(部員.fields && 部員.fields.name);
+      if (確かめの控え.size > 2000) 確かめの控え.clear(); // 実体の中で増えすぎないように
+      確かめの控え.set(控えの鍵, { memberId, 自分名, 期限: 今 + 確かめの控えの長さ });
+    }
 
     // 記録を読む
     let 文書たち = [];

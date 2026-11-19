@@ -5,7 +5,15 @@
  */
 import test from 'node:test';
 import assert from 'node:assert';
-import { 自分の記録を返す, 自分の行だけにする, 他の人, ページ, 初めの件, idの上限 } from '../src/jibun.mjs';
+import {
+  自分の記録を返す,
+  自分の行だけにする,
+  他の人,
+  ページ,
+  初めの件,
+  idの上限,
+  確かめの控えを忘れる,
+} from '../src/jibun.mjs';
 import { 証の控えを忘れる, 猶予の終わり } from '../src/kojin.mjs';
 
 const 企画 = 'kyudoscoremanager';
@@ -42,6 +50,7 @@ const 欄に = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, �
 /** 偽の雲。文書 は 道（/groups/…）→ ふつうの値の表 */
 function 偽の雲(文書) {
   const 問い合わせ = [];
+  const 読んだ道 = [];
   const 時 = (欄) => (欄 && 欄.lastModified && 欄.lastModified.timestampValue ? Date.parse(欄.lastModified.timestampValue) : null);
   const 送る = async (url, 頼み = {}) => {
     if (url === 'https://oauth2.googleapis.com/token')
@@ -99,11 +108,12 @@ function 偽の雲(文書) {
       }
       return new Response(JSON.stringify(行.map((d) => ({ document: d, readTime: '2026-11-19T00:00:00Z' }))), { status: 200 });
     }
+    読んだ道.push(道);
     const 中 = 文書[道];
     if (!中) return new Response('{}', { status: 404 });
     return new Response(JSON.stringify({ name: 根の名 + 道, fields: 欄に(中) }), { status: 200 });
   };
-  return { 送る, 問い合わせ };
+  return { 送る, 問い合わせ, 読んだ道 };
 }
 
 const 団体 = '100001';
@@ -149,8 +159,9 @@ function 団体の文書(足す = {}) {
   };
 }
 
-async function 呼ぶ(体, 文書 = 団体の文書(), 本人を替える = {}) {
+async function 呼ぶ(体, 文書 = 団体の文書(), 本人を替える = {}, 控えを残す = false) {
   証の控えを忘れる();
+  if (!控えを残す) 確かめの控えを忘れる();
   const 雲 = 偽の雲(文書);
   const env = { FIREBASE_SA_KEYS: JSON.stringify({ [企画]: await 偽のサービスアカウント() }) };
   const 結果 = await 自分の記録を返す(頼み(体), env, { ...本人, ...本人を替える }, { 送る: 雲.送る, 今: Date.parse('2026-11-20T00:00:00Z') });
@@ -357,4 +368,18 @@ test('1 ページの数：頼まれなければ 5 件。答えの大きさから
   assert.strictEqual(多すぎ.中身.記録.length + 多すぎ.中身.外す.length, ページ);
   assert.strictEqual(idの上限, 5);
   assert.strictEqual((await 呼ぶ({ 団体, 形: 'id', ids: ['a', 'b', 'c', 'd', 'e', 'f'] })).状態, 400);
+});
+
+test('所属の確かめは 60 秒控え、続けて呼ばれたら証・帳面・名簿を読み直さない（11/20）', async () => {
+  確かめの控えを忘れる();
+  const 一 = await 呼ぶ({ 団体, 形: '全部' }, 団体の文書(), {}, true);
+  assert.strictEqual(一.状態, 200);
+  const 二 = await 呼ぶ({ 団体, 形: '全部' }, 団体の文書(), {}, true);
+  assert.strictEqual(二.状態, 200);
+  const 読んだ = 二.雲.読んだ道;
+  assert.ok(!読んだ.some((道) => 道.includes('/member_claims/')), '続けて呼んだのに所属の証を読み直した');
+  // 別の団体を頼んだら控えは使わない（その団体の証で確かめて断る）
+  const よそ = await 呼ぶ({ 団体: '100002', 形: '全部' }, 団体の文書(), {}, true);
+  assert.strictEqual(よそ.状態, 403);
+  確かめの控えを忘れる();
 });
