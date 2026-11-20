@@ -18,15 +18,18 @@ FIREBASE_PROJECT_IDS = "kyudoscoremanager,kyudoscoremanager-stg"
 # 呼んでよい出どころ（CORS）。検証は手元の配り口も許す
 ALLOWED_ORIGINS = "https://kyudoscoremanager.web.app,https://kyudoscoremanager.firebaseapp.com,https://kyudoscoremanager-stg.web.app,https://kyudoscoremanager-stg.firebaseapp.com,http://localhost:8090,http://localhost:8091,http://127.0.0.1:8090,http://127.0.0.1:8091,http://localhost:8081"
 # 呼んでよい模型
-ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash"
+# 2026-11-20：gemini-4-hydrogen を足した（AI チャットの連鎖の最後の頼み。無料枠で答える。Neon は無料枠 0 なので入れない）
+ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash,gemini-4-hydrogen"
 # 模型の切り替えの並び。使う模型が混んでいる・上限・無いときは、要求した模型のあと、この並びの残りを順に試す。
 # MODEL_CHAIN … 写真の読み取りなど。切り替え先は考える量 0（考えない体）。2026-10-13 16時から 3.6・3.5 が 503 のまま読めなくなったので 3.8・3.7 を足した（3.8 は量 0 で 6〜77 秒、18 回中 17 回正しく読めた）
 # 2026-10-25：写真の読み取りの切り替え先は 3.5 を先に。10/16〜24 に切り替え先で答えたのは 3.5 が 13 回・3.7 が 2 回・3.8 が 1 回で、
 #   3.8・3.7 は 45 秒ずつ待って打ち切ることが多く、3.5 が答えるまで 70〜150 秒かかっていた
-# MODEL_CHAIN_STREAM … AI チャット。頼んだ模型に関わらず先頭（3.8）から試す（2026-10-13。3.8 は考える量 1024 で平均 5.5 秒）
-# どちらも、直近 30 分に答えた模型があれば、それを先頭に回す（src/index.mjs の 答えた模型を見る長さ）
+# MODEL_CHAIN_STREAM … AI チャット。頼んだ模型に関わらず先頭から試す（2026-10-13 は 3.8 から。3.8 は考える量 1024 で平均 5.5 秒だった）
+# 2026-11-20 本人「並びを自動で直す」：土台を 3.6→3.5→3.8→3.7→4-hydrogen に。10/25〜11/20 の流し読みで答えた 322 回はみな 3.6 か 3.5 で、
+#   3.8・3.7 は 1 回も答えず 15 秒ずつ待っていた。Hydrogen は 3.6 の約 4 倍遅いが答える（Gemini 3 がみな混む日の最後の頼み）
+# どちらも、直近 7 日に答えた模型を先頭に回し、この 6 時間に打ち切った模型は後ろへ回す（src/index.mjs の 並べる。前は 30 分だけ覚えていた）
 MODEL_CHAIN = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash"
-MODEL_CHAIN_STREAM = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash"
+MODEL_CHAIN_STREAM = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash,gemini-4-hydrogen"
 # App Check の印（X-Firebase-AppCheck）の扱い。log … 確かめて数えるだけ（呼んだ記録の appcheck）。enforce … 無い・正しくないものを断る。
 # 中継の記録で印の無い呼び出しが減ってから enforce にする（README の「App Check」）
 # 2026-11-13 enforce にした：11/8 から数えて、ふつうの利用 15 回は全部 ok、印なしは 11/12 夜の攻撃の試しの 6 回だけだった（本人「やって」）
@@ -90,9 +93,9 @@ migrations_dir = "migrations"
 binding = "KAIZEN_PHOTOS"
 id = "775e947b450f4aa69def0d70d90ad1ba"
 
-# 1 年を過ぎた保存を消す定時の処理（毎日 3:17 JST）
+# 1 年を過ぎた保存を消す定時の処理（毎日 3:17 JST）と、1 時間ごとの見回り（毎時 7 分。src/index.mjs の 見回る・見回りの時刻 と同じ字。2026-11-20 本人）
 [triggers]
-crons = ["17 18 * * *"]
+crons = ["17 18 * * *", "7 * * * *"]
 
 # 実行場所。Google の Gemini API は、呼ぶ側の場所（Cloudflare の拠点）が未対応の地域だと
 # 「User location is not supported」の 400 を返す。拠点は呼んだ人の近くで決まり、日によって・時刻によって

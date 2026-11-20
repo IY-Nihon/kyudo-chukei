@@ -204,7 +204,8 @@ export default {
     // 直近に答えた模型（D1）を 1 つずつ待っていた。写真では体の受け取りの間にほかが済む
     const 体の約束 =
       request.method === 'GET' || request.method === 'HEAD' ? Promise.resolve(undefined) : request.arrayBuffer();
-    const 模型の約束 = 直近に答えた模型(env, 流し読みか ? '流し読み' : '生成');
+    const 模型の種 = 流し読みか ? '流し読み' : '生成';
+    const 模型の約束 = Promise.all([直近の答え(env, 模型の種), 最近打ち切った模型たち(env, 模型の種)]);
     // 回数。人ごとは前ぶれと同時に数える（数えられるのはその人の枠だけ）。全員合わせての回数は、通してよい人と
     // 分かってから数える（2026-11-07 のレビュー。同時に数えると、断られる匿名の口座を作り替えて呼び続けるだけで
     // 全員の枠が埋まり、みなが「混み合っています」になった）
@@ -269,8 +270,11 @@ export default {
     const 切り替えない = !!request.headers.get('X-Kyudo-No-Chain');
     let 候補 = 候補の模型たち(道, 切り替えない ? '' : チャットか ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN, チャットか);
     // 直近に答えた模型から試す（答えない模型を毎回待たない。答えた模型を見る長さ の説明）
-    if (候補.length > 1) 候補 = 先頭に回す(候補, await 模型の約束);
-    else 模型の約束.catch(() => {});
+    // 直近に答えた模型から試し、この 6 時間に打ち切った模型は後ろへ（並べる。2026-11-20 本人「並びを自動で直す」）
+    if (候補.length > 1) {
+      const [答え, 遅い表] = await 模型の約束;
+      候補 = 並べる(候補, 答え, 遅い表);
+    } else 模型の約束.catch(() => {});
     const 前ぶれ = 送り始め - 受けた時刻;
     const 送り = await 上流へ送る({
       候補,
@@ -282,6 +286,8 @@ export default {
       体,
       種,
       依頼者,
+      // 打ち切った模型を D1 に書く（6 時間後ろへ回す。どの実体からも読む）。待たない
+      打ち切りを書く: (模型) => 待たずに(打ち切った模型を書く(env, 模型の種, 模型).catch(() => {})),
     });
     if (送り.つながらない) return 答える({ error: 'Gemini につながりませんでした', 訳: 送り.訳 }, 502, 許す出どころ);
     const { 返事, 使った, 使った模型, 混んだ } = 送り;
@@ -319,6 +325,16 @@ export default {
 
   // 毎日の定時の処理（wrangler.toml の [triggers]）。1 年を過ぎた改善のための保存を消す
   async scheduled(event, env, ctx) {
+    // 1 時間ごとの見回り（見回る）。毎日の片付けとは別の定時
+    if (event && event.cron === 見回りの時刻) {
+      ctx.waitUntil(
+        見回る(env).then(
+          (結果) => console.log('見回り', JSON.stringify(結果)),
+          (e) => console.warn('見回りできませんでした', e)
+        )
+      );
+      return;
+    }
     ctx.waitUntil(古い呼んだ記録を消す(env).catch(() => {}));
     ctx.waitUntil(古い控えを消す(env).catch(() => {}));
     ctx.waitUntil(古い一日の数を消す(env).catch(() => {}));
@@ -474,7 +490,12 @@ export async function 上流へ送る(注文) {
   // 考えない体にしないのは、頼まれた模型だけ（先頭に回した模型が頼まれた模型とは限らない。直近に答えた模型を先頭に回す）
   const 頼んだ模型 = 注文.頼んだ模型 ?? (候補[0] && 候補[0].模型);
   const 遅いの鍵 = (模型) => (流し読みか ? '流し読み:' : '生成:') + 模型;
-  const 遅いと覚える = (模型) => 模型 && 遅い模型.set(遅いの鍵(模型), Date.now() + 遅いの控え);
+  const 遅いと覚える = (模型) => {
+    if (!模型) return;
+    遅い模型.set(遅いの鍵(模型), Date.now() + 遅いの控え);
+    // 実体をまたいで 6 時間後ろへ回すために書く（呼んだところが渡したときだけ）
+    if (typeof 注文.打ち切りを書く === 'function') 注文.打ち切りを書く(模型);
+  };
   // 最後の模型の 1 回の呼び出しが、一回の上限まで待っても答えの頭が来なかった（下で 503 を返す）
   let 締め切りを過ぎた = false;
   for (let 順 = 0; 順 < 候補.length; 順++) {
@@ -569,6 +590,90 @@ export async function 上流へ送る(注文) {
   // 一回の上限で打ち切った返事は体を捨てている（または返事が無い）ので、混雑と同じ形の 503 を作って返す
   if (締め切りを過ぎた) 返事 = 締め切りの返事();
   return { 返事, 使った, 使った模型, 混んだ, 送った回数, 遅かった, 締め切りを過ぎた };
+}
+
+/** 見回りの定時（Cloudflare の cron。wrangler.toml の [triggers] と同じ字にする） */
+export const 見回りの時刻 = '7 * * * *';
+/** この間に AI チャットが答えていれば見回らない（使われている） */
+export const 見回りの間 = 60 * 60 * 1000;
+/** 見回りで答えの頭を待つ長さ（AI チャットの 1 つの模型の待ちの上限と同じ） */
+export const 見回りの上限 = 待ちの上限.流し読み;
+
+/**
+ * 見回り（2026-11-20 本人「見回り（1 時間ごと）」。kawagame.com の加賀も 30 分ごとに短い生成で生きているかを確かめている）。
+ * 直近 1 時間に AI チャット（流し読み）が答えていなければ、いま先頭に来る模型（並べる のあと）に短い問いを 1 回だけ送る。
+ * 答えたら呼んだ記録に残し（直近の答え が新しくなる）、答えなければ打ち切った模型として 6 時間後ろへ回す。使う人の最初の 1 問で、
+ * 答えない模型を待たせないため。1 回に送るのは 1 つの模型だけ（無料枠を 1 日に最大 24 回）。記録の企画は「見回り」
+ * @param {any} env
+ * @param {{fetch?: Function, 今?: () => number, 上限?: number, 鍵の番?: number}} [道具] 検査用
+ */
+export async function 見回る(env, 道具 = {}) {
+  const 今 = 道具.今 || Date.now;
+  const 送る = 道具.fetch || fetch;
+  const 鍵たち = 鍵の一覧(env);
+  if (!鍵たち.length || !env || !env.KAIZEN_DB) return { 見回った: false, 訳: '鍵か D1 が無い' };
+  const 種 = '流し読み';
+  const 答え = await 直近の答え(env, 種, 今());
+  if (答え.模型 && 今() - 答え.時 < 見回りの間) return { 見回った: false, 訳: '使われている' };
+  const 遅い表 = await 最近打ち切った模型たち(env, 種, 今());
+  const 道 = '/v1beta/models/gemini-3.6-flash:streamGenerateContent';
+  const 候補 = 並べる(候補の模型たち(道, env.MODEL_CHAIN_STREAM, true), 答え, 遅い表, 今());
+  const 相手 = 候補[0];
+  if (!相手 || !相手.模型) return { 見回った: false, 訳: '連鎖が無い' };
+  const 止め = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  let 打ち切った = false;
+  const 時計 = 止め
+    ? setTimeout(() => {
+        打ち切った = true;
+        止め.abort();
+      }, 道具.上限 ?? 見回りの上限)
+    : null;
+  const 始め = 今();
+  let 状態 = 0;
+  let 空 = false;
+  try {
+    const 頭 = new Headers();
+    頭.set('x-goog-api-key', 鍵たち[(道具.鍵の番 ?? Math.floor(Math.random() * 鍵たち.length)) % 鍵たち.length]);
+    頭.set('Content-Type', 'application/json');
+    const 返り = await 送る(上流 + 相手.道 + '?alt=sse', {
+      method: 'POST',
+      ...(止め ? { signal: 止め.signal } : {}),
+      headers: 頭,
+      body: JSON.stringify({
+        contents: [{ role: 'user', parts: [{ text: '「はい」とだけ答えてください' }] }],
+        generationConfig: { maxOutputTokens: 16, thinkingConfig: { thinkingBudget: 0 } },
+      }),
+    });
+    const 返事 = await 流れの先頭を見る(返り, 相手.道);
+    状態 = 返事 ? 返事.status : 0;
+    空 = !!(返事 && 返事.空の流れ);
+    if (返事 && 返事.body) await 返事.body.cancel().catch(() => {});
+  } catch {
+    状態 = 0;
+  } finally {
+    if (時計) clearTimeout(時計);
+  }
+  const 先頭まで = 今() - 始め;
+  const 答えた = 状態 === 200 && !空 && !打ち切った;
+  await 呼んだ記録を残す(
+    env,
+    {
+      企画: '見回り',
+      道: 相手.道,
+      使った模型: 相手.模型,
+      状態: 答えた ? 200 : 打ち切った ? 504 : 状態 || 502,
+      先頭まで,
+      送った回数: 1,
+      混んだ: 0,
+      遅かった: 打ち切った ? 1 : 0,
+      印: '',
+      前ぶれ: 0,
+    },
+    今()
+  ).catch(() => {});
+  if (答えた) 答えた模型を控える(種, 相手.模型, 今());
+  else await 打ち切った模型を書く(env, 種, 相手.模型, 今()).catch(() => {});
+  return { 見回った: true, 模型: 相手.模型, 答えた, 先頭まで, 状態 };
 }
 
 /**
@@ -750,7 +855,9 @@ export function 候補の模型たち(道, 連鎖, 頭から = false) {
  * 3.6 に回った（最初の字まで 33 秒）。写真の読み取りも 3.6 が混むと 3.8・3.7 に 45 秒ずつ待ち、3.5 が答えるまで 70〜150 秒。
  * 呼んだ記録（chukei_calls）は実体をまたいで残るので、そこから直近に答えた模型を読む
  */
-export const 答えた模型を見る長さ = 30 * 60 * 1000;
+// 2026-11-20 本人「並びを自動で直す」：30 分 → 7 日。30 分だと、しばらく使わないと忘れて手書きの並び（答えない 3.8 が先頭）に戻り、
+// 最初の 1 問の 1 字目まで平均 66 秒かかっていた（10/25〜11/20 の 42 回。AI のログでは 1 字目の中央 18.5 秒・半分が 20 秒超）
+export const 答えた模型を見る長さ = 7 * 24 * 60 * 60 * 1000;
 
 /**
  * 直近に答えた模型（なければ空）。流し読み（AI チャット）と生成（写真の読み取りなど）で別に見る。
@@ -759,22 +866,88 @@ export const 答えた模型を見る長さ = 30 * 60 * 1000;
  * @param {'流し読み'|'生成'} 種
  */
 export async function 直近に答えた模型(env, 種, 今 = Date.now()) {
+  return (await 直近の答え(env, 種, 今)).模型;
+}
+
+/**
+ * 直近の答え（答えた模型と、その時刻）。無ければ { 模型: '', 時: 0 }。打ち切った模型を後ろへ回すとき、打ち切ったあとに
+ * 答えていれば戻すために時刻も持つ
+ */
+export async function 直近の答え(env, 種, 今 = Date.now()) {
   // 実体の中で 60 秒控える（毎回 D1 を読まない。答えたら 答えた模型を控える がすぐ入れ替える）
   const 控え = 答えた模型の控え.get(種);
-  if (控え && 控え.期限 > 今) return 控え.模型;
-  if (!env || !env.KAIZEN_DB) return '';
+  if (控え && 控え.期限 > 今) return { 模型: 控え.模型, 時: 控え.時 || 0 };
+  if (!env || !env.KAIZEN_DB) return { 模型: '', 時: 0 };
   try {
     const 行 = await env.KAIZEN_DB.prepare(
-      "SELECT used FROM chukei_calls WHERE kind = ?1 AND status = 200 AND used != '' AND at > ?2 ORDER BY at DESC LIMIT 1"
+      "SELECT used, at FROM chukei_calls WHERE kind = ?1 AND status = 200 AND used != '' AND at > ?2 ORDER BY at DESC LIMIT 1"
     )
       .bind(種, 今 - 答えた模型を見る長さ)
       .first();
     const 模型 = (行 && 行.used) || '';
-    答えた模型の控え.set(種, { 模型, 期限: 今 + 答えた模型の控えの長さ });
-    return 模型;
+    const 時 = (行 && Number(行.at)) || 0;
+    答えた模型の控え.set(種, { 模型, 時, 期限: 今 + 答えた模型の控えの長さ });
+    return { 模型, 時 };
   } catch {
-    return '';
+    return { 模型: '', 時: 0 };
   }
+}
+
+/**
+ * 打ち切った模型を後ろへ回す長さ（ms。2026-11-20 本人「並びを自動で直す」）。打ち切った時刻は D1 の mokei_osoi に置き、
+ * どの実体からも読む（前の 遅い模型 は実体ごとに 3 分だけで、ほかの実体に当たると毎回待っていた）
+ */
+export const 遅いを覚える長さ = 6 * 60 * 60 * 1000;
+/** 打ち切った模型の控え（種ごとに { 表: Map(模型 → 打ち切った時刻), 期限 }。実体の中で 60 秒） */
+const 打ち切りの控え = new Map();
+
+/** この 遅いを覚える長さ の間に打ち切った模型と、その時刻（Map）。読めなければ空 */
+export async function 最近打ち切った模型たち(env, 種, 今 = Date.now()) {
+  const 控え = 打ち切りの控え.get(種);
+  if (控え && 控え.期限 > 今) return 控え.表;
+  const 表 = new Map();
+  if (env && env.KAIZEN_DB) {
+    try {
+      const 結果 = await env.KAIZEN_DB.prepare('SELECT model, at FROM mokei_osoi WHERE kind = ?1 AND at > ?2')
+        .bind(種, 今 - 遅いを覚える長さ)
+        .all();
+      for (const 行 of (結果 && 結果.results) || []) if (行 && 行.model) 表.set(String(行.model), Number(行.at) || 0);
+    } catch {
+      // 表が無い（migrations の前）・読めない：後ろへ回さずに送る
+    }
+  }
+  打ち切りの控え.set(種, { 表, 期限: 今 + 答えた模型の控えの長さ });
+  return 表;
+}
+
+/** 打ち切った模型を書く（D1 と、この実体の控え）。書けなくても止めない */
+export async function 打ち切った模型を書く(env, 種, 模型, 今 = Date.now()) {
+  if (!模型) return;
+  const 控え = 打ち切りの控え.get(種);
+  if (控え) 控え.表.set(模型, 今);
+  if (!env || !env.KAIZEN_DB) return;
+  await env.KAIZEN_DB.prepare('INSERT OR REPLACE INTO mokei_osoi (kind, model, at) VALUES (?1, ?2, ?3)')
+    .bind(種, 模型, 今)
+    .run();
+}
+
+/**
+ * 候補の並びを、直近の答えと打ち切りで並べ直す（2026-11-20 本人「並びを自動で直す」）。
+ *   ・遅いを覚える長さ の間に打ち切った模型は後ろへ（打ち切ったあとに答えていれば戻す）
+ *   ・直近に答えた模型（遅くないもの）を先頭へ
+ * 残りは連鎖の並びのまま。みな遅ければそのまま
+ */
+export function 並べる(候補, 答え, 遅い表, 今 = Date.now()) {
+  if (!Array.isArray(候補) || 候補.length < 2) return 候補;
+  const 遅いか = (模型) => {
+    const 時 = 遅い表 && typeof 遅い表.get === 'function' ? 遅い表.get(模型) : 0;
+    if (!時 || 今 - 時 >= 遅いを覚える長さ) return false;
+    return !(答え && 答え.模型 === 模型 && 答え.時 > 時);
+  };
+  let 並び = 候補;
+  if (答え && 答え.模型 && !遅いか(答え.模型)) 並び = 先頭に回す(並び, 答え.模型);
+  const 速い = 並び.filter((x) => !遅いか(x.模型));
+  return 速い.length ? [...速い, ...並び.filter((x) => 遅いか(x.模型))] : 並び;
 }
 
 /** 直近に答えた模型の控え（流し読み・生成ごと。実体の生きている間だけ） */
@@ -782,11 +955,12 @@ const 答えた模型の控え = new Map();
 export const 答えた模型の控えの長さ = 60 * 1000;
 /** いま答えた模型を控える（次の呼び出しで D1 を読まずに先頭に回す） */
 export function 答えた模型を控える(種, 模型, 今 = Date.now()) {
-  if (模型) 答えた模型の控え.set(種, { 模型, 期限: 今 + 答えた模型の控えの長さ });
+  if (模型) 答えた模型の控え.set(種, { 模型, 時: 今, 期限: 今 + 答えた模型の控えの長さ });
 }
-/** 検査で控えを空にする */
+/** 検査で控えを空にする（打ち切りの控えも） */
 export function 答えた模型を忘れる() {
   答えた模型の控え.clear();
+  打ち切りの控え.clear();
 }
 
 /** 候補の並びで、その模型を先頭に回す（ほかの並びは変えない）。候補に無ければそのまま */
