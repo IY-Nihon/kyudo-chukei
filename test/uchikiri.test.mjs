@@ -35,7 +35,7 @@ test('答えない模型は上限で打ち切り、次の模型の答えを返�
   assert.strictEqual(送った.length, 2);
 });
 
-test('最後の模型は打ち切らない（締め切りまで待つ）', async () => {
+test('最後の模型は 1 つの上限では打ち切らず、全体の締め切りまで待つ（締め切りの前に答えればそのまま返す）', async () => {
   const 結果 = await 上流へ送る({
     候補: [{ 模型: 'gemini-3.5-flash', 道: 生成('gemini-3.5-flash') }],
     鍵たち: ['a'],
@@ -43,14 +43,63 @@ test('最後の模型は打ち切らない（締め切りまで待つ）', async
     search: '',
     method: 'POST',
     待ちの上限: 10,
-    fetch: (url, 頼み) => {
-      assert.ok(!頼み.signal, '最後の模型に打ち切りを付けない');
-      return new Promise((ok) => setTimeout(() => ok(new Response('{}', { status: 200 })), 40));
-    },
+    全体の締め切り: 1000,
+    fetch: () => new Promise((ok) => setTimeout(() => ok(new Response('{}', { status: 200 })), 40)),
     待つ: async () => {},
   });
   assert.strictEqual(結果.返事.status, 200);
   assert.strictEqual(結果.遅かった, 0);
+  assert.strictEqual(結果.締め切りを過ぎた, false);
+});
+
+test('最後の模型も全体の締め切りで打ち切り、混雑と同じ形の 503 を返す（Cloudflare の 524 まで待たせない。11/20 本人）', async () => {
+  const 結果 = await 上流へ送る({
+    候補: [{ 模型: 'gemini-3.5-flash', 道: 生成('gemini-3.5-flash') }],
+    鍵たち: ['a'],
+    始めの鍵: 0,
+    search: '',
+    method: 'POST',
+    全体の締め切り: 80,
+    fetch: 黙る,
+    待つ: async () => {},
+  });
+  assert.strictEqual(結果.返事.status, 503);
+  assert.strictEqual(結果.締め切りを過ぎた, true);
+  assert.strictEqual(結果.遅かった, 1);
+  const 中身 = await 結果.返事.json();
+  assert.strictEqual(中身.error.code, 503);
+  assert.match(中身.error.message, /締め切り/, 'アプリが送り直さない目印（締め切り）が無い');
+});
+
+test('最後の模型の混みの待ちが締め切りを越えるなら、待たずにその 503 を返す', async () => {
+  const 待った = [];
+  let 送った = 0;
+  const 結果 = await 上流へ送る({
+    候補: [{ 模型: 'gemini-3.5-flash', 道: 生成('gemini-3.5-flash') }],
+    鍵たち: ['a'],
+    始めの鍵: 0,
+    search: '',
+    method: 'POST',
+    全体の締め切り: 4000,
+    今: () => 0,
+    fetch: () => {
+      送った++;
+      return Promise.resolve(
+        new Response(JSON.stringify({ error: { code: 503, message: 'high demand', status: 'UNAVAILABLE' } }), {
+          status: 503,
+        })
+      );
+    },
+    待つ: async (ms) => {
+      待った.push(ms);
+    },
+  });
+  // 2 秒の待ちは締め切りの 1 秒前までに収まるので待つ。次の 4 秒は収まらないので、2 回目の 503 をそのまま返す
+  assert.deepStrictEqual(待った, [2000]);
+  assert.strictEqual(送った, 2);
+  assert.strictEqual(結果.返事.status, 503);
+  assert.strictEqual(結果.締め切りを過ぎた, false);
+  assert.strictEqual((await 結果.返事.json()).error.message, 'high demand', '上流の 503 の体を捨てた');
 });
 
 test('締め切りが近いと、次の模型があっても待ちを縮め、残りが無ければ最後の模型へ飛ぶ', async () => {

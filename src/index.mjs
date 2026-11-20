@@ -466,6 +466,8 @@ export async function 上流へ送る(注文) {
   const 頼んだ模型 = 注文.頼んだ模型 ?? (候補[0] && 候補[0].模型);
   const 遅いの鍵 = (模型) => (流し読みか ? '流し読み:' : '生成:') + 模型;
   const 遅いと覚える = (模型) => 模型 && 遅い模型.set(遅いの鍵(模型), Date.now() + 遅いの控え);
+  // 全体の締め切りまで待っても、最後の模型の最初の答えが来なかった（下で 503 を返す）
+  let 締め切りを過ぎた = false;
   for (let 順 = 0; 順 < 候補.length; 順++) {
     const 最後の模型 = 順 === 候補.length - 1;
     使った模型 = 候補[順].模型;
@@ -482,14 +484,17 @@ export async function 上流へ送る(注文) {
       頭.set('x-goog-api-key', 鍵たち[番]);
       if (種) 頭.set('Content-Type', 種);
       if (依頼者) 頭.set('x-goog-api-client', 依頼者);
-      // 次の模型があるなら、上限を過ぎたら打ち切る（最後の模型は締め切りまで待つ）
+      // 上限を過ぎたら打ち切る。次の模型があれば次へ。最後の模型は全体の締め切りまで待ち、過ぎたら打ち切って 503 を返す
+      //（前は最後の模型を打ち切らず、Gemini が答えないと 100 秒を超えて Cloudflare の 524 になり、1 字目まで 145〜251 秒
+      // 待たせていた。2026-11-17〜18 の本番。11/20 本人「95 秒で打ち切る」）
       const 残り = 締め切り - 今();
-      const 上限 = 最後の模型 ? null : Math.min(一つの上限, 残り - 5000);
-      if (上限 !== null && 上限 <= 0) {
-        次の模型へ = true;
+      const 上限 = 最後の模型 ? 残り : Math.min(一つの上限, 残り - 5000);
+      if (上限 <= 0) {
+        if (最後の模型) 締め切りを過ぎた = true;
+        else 次の模型へ = true;
         break;
       }
-      const 止め = 上限 !== null && typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const 止め = typeof AbortController !== 'undefined' ? new AbortController() : null;
       let 打ち切った = false;
       const 時計 = 止め
         ? setTimeout(() => {
@@ -513,7 +518,8 @@ export async function 上流へ送る(注文) {
         if (打ち切った) {
           遅かった++;
           遅いと覚える(候補[順].模型);
-          次の模型へ = true;
+          if (最後の模型) 締め切りを過ぎた = true;
+          else 次の模型へ = true;
           break;
         }
         return { つながらない: true, 訳: String((e && e.message) || e) };
@@ -524,7 +530,8 @@ export async function 上流へ送る(注文) {
       if (打ち切った) {
         遅かった++;
         遅いと覚える(候補[順].模型);
-        次の模型へ = true;
+        if (最後の模型) 締め切りを過ぎた = true;
+        else 次の模型へ = true;
         if (返事 && 返事.body) await 返事.body.cancel().catch(() => {});
         break;
       }
@@ -535,9 +542,10 @@ export async function 上流へ送る(注文) {
       }
       const 訳 = await 送り直す訳(返事);
       if (訳 === '鍵' && 鍵を替えた < 鍵たち.length - 1) 鍵を替えた++;
-      // 混んでいる：次の模型があれば待たずに移る。最後の模型なら、待って送り直す
+      // 混んでいる：次の模型があれば待たずに移る。最後の模型なら、待って送り直す（待つと締め切りを越えるなら、その 503 を返す）
       else if (訳 === '混み' && !最後の模型) 次の模型へ = true;
-      else if (訳 === '混み' && 混んだ < 混みの待ち.length) await 待つ(混みの待ち[混んだ++]);
+      else if (訳 === '混み' && 混んだ < 混みの待ち.length && 今() + 混みの待ち[混んだ] < 締め切り - 1000)
+        await 待つ(混みの待ち[混んだ++]);
       // どの鍵も上限（429）、または模型が無い（404）：次の模型へ
       else if (!最後の模型 && (訳 === '鍵' || 返事.status === 404)) {
         次の模型へ = true;
@@ -551,7 +559,26 @@ export async function 上流へ送る(注文) {
     }
     if (!次の模型へ) break;
   }
-  return { 返事, 使った, 使った模型, 混んだ, 送った回数, 遅かった };
+  // 締め切りで打ち切った返事は体を捨てている（または返事が無い）ので、混雑と同じ形の 503 を作って返す
+  if (締め切りを過ぎた) 返事 = 締め切りの返事();
+  return { 返事, 使った, 使った模型, 混んだ, 送った回数, 遅かった, 締め切りを過ぎた };
+}
+
+/**
+ * 全体の締め切り（全体の締め切り＝95 秒）まで待っても、最初の答えが来なかったときの返事。Gemini の混雑と同じ 503 の形
+ * （アプリは「ただいまAIが混み合っています」と出す）。文の「締め切り」は、アプリが送り直さない目印にもなる
+ */
+export function 締め切りの返事() {
+  return new Response(
+    JSON.stringify({
+      error: {
+        code: 503,
+        message: '中継の締め切りまで待ちましたが、AI の答えが始まりませんでした（混み合っています）',
+        status: 'UNAVAILABLE',
+      },
+    }),
+    { status: 503, headers: { 'Content-Type': 'application/json' } }
+  );
 }
 
 /**
