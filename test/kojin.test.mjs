@@ -102,10 +102,12 @@ test('入れる：6 字の個人ID を逆引きして、所属の証を書き、
   assert.deepStrictEqual(Object.keys(証).sort(), ['claimedAt', 'groupId', 'memberId', 'personalId']);
   assert.strictEqual(証.groupId.stringValue, '100001');
   assert.strictEqual(証.memberId.stringValue, 'm1');
-  // 2 回目はアクセストークンを取り直さない（署名は 1 時間に 1 回）
+  // 2 回目はアクセストークンを取り直さない（署名は 1 時間に 1 回）。時刻は 1 回目の 1 分後に決める
+  //（前は今の時計で呼び、1 回目に決めた時刻から 1 時間を過ぎる 2026-11-20 の 10 時（日本）から落ちていた）
   await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), env, { ...匿名, sub: 'anon-2' }, {
     送る: 雲.送る,
     回数に収まるか: いつも収まる,
+    今: Date.parse('2026-11-20T00:01:00Z'),
   });
   assert.strictEqual(雲.トークンを取った(), 1);
 });
