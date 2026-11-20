@@ -252,6 +252,9 @@ export default {
     // 体を字にするのは 1 回だけ（写真では大きく、無料枠の CPU 10ms を食う）。4MB を超えるもの・JSON でないものは字にしない
     const 体の字 =
       体 && 体.byteLength < 4 * 1024 * 1024 && /json/i.test(種 || '') ? new TextDecoder().decode(体) : null;
+    // アプリが使わない道具（Google 検索など）と cachedContent は送らない（S3）
+    const 断る訳 = 中継しない体か(体の字);
+    if (断る訳) return 答える({ error: 断る訳 }, 400, 許す出どころ);
     // 道具（function calling）の返事の role。@google/generative-ai 0.24 は functionResponse を
     // role:"function" で送るが、いまの Gemini API（3.6-flash）は 'function' を受けず
     // 「Role 'function' is not supported」の 400 を返す（2026-09-14、AI チャットで実際に）。
@@ -371,6 +374,39 @@ export function 道具の返事のroleを直す(文) {
     }
   }
   return 直した ? JSON.stringify(体) : null;
+}
+
+/**
+ * 中継しない体なら、その訳を返す。通すなら null（2026-11-21・別の AI の点検の S3）。
+ *
+ * アプリが送るのは、写真の読み取り（generationConfig と写真）・出欠の読み取り・AI チャット（systemInstruction と
+ * functionDeclarations の道具）だけで、Google 検索・コードの実行・URL の読み込みなどの道具や、置いておいた中身
+ * （cachedContent）は使わない。アプリと関係の無い使い方で鍵の枠（課金のある鍵なら料金）を食わせないよう断る。
+ * REST は snake_case（google_search・cached_content）も受けるので、どちらの書き方も見る。
+ * 字にしていない体（4MB を超える写真の体・JSON でないもの）は見ない（無料枠の CPU 10ms のため。写真の体に道具は付かない）
+ * @param {string|null} 文 体の字
+ * @returns {string|null}
+ */
+export function 中継しない体か(文) {
+  if (文 === null || 文 === undefined) return null;
+  // 文の中の引用符は \" と書かれるので、"tools": のような検索は本物の項目だけに当たる（写真の base64 に引用符は無い）
+  if (!/"(tools|cachedContent|cached_content)":/.test(文)) return null;
+  let 体;
+  try {
+    体 = JSON.parse(文);
+  } catch {
+    return null; // 読めない体は Gemini が 400 で断る
+  }
+  if (!体 || typeof 体 !== 'object') return null;
+  if ('cachedContent' in 体 || 'cached_content' in 体) return 'この中身（cachedContent）は中継しません';
+  if (体.tools !== undefined) {
+    if (!Array.isArray(体.tools)) return '道具の形が違います';
+    for (const 道具 of 体.tools) {
+      if (!道具 || typeof 道具 !== 'object' || Object.keys(道具).some((k) => k !== 'functionDeclarations'))
+        return '中継する道具は functionDeclarations だけです';
+    }
+  }
+  return null;
 }
 
 /** 使える鍵の並び。GEMINI_API_KEY（1つ）と GEMINI_API_KEYS（, 区切り）を合わせ、重複は落とす */
