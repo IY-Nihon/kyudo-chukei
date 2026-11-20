@@ -173,7 +173,7 @@ export default {
 
     // 2b. 通してよい人か（確認の済んだ団体の持ち主か、所属の証のある部員だけ。2026-11-03）。
     // アプリは入っている団体を X-Kyudo-Group に付ける。付いていれば Firestore を 1 回読むだけで決まる（下の 通してよい人か）
-    const 通すの約束 = 通してよい人か(本人, 証, {
+    const 通すの約束 = 通してよい人かと団体(本人, 証, {
       団体: request.headers.get('X-Kyudo-Group') || '',
       印: request.headers.get('X-Firebase-AppCheck') || '',
       env,
@@ -184,7 +184,7 @@ export default {
     // 同じ上限を使うと、写真を読むたびに保存の 1〜6 回ぶん Gemini の枠が減り、
     // AI チャットが「呼びすぎ」で断られやすくなる（2026-09-26）
     if (url.pathname === '/hozon' || url.pathname.startsWith('/hozon/')) {
-      const [通す, 収まる] = await Promise.all([通すの約束, 回数に収まるか(本人, env.RATE_HOZON)]);
+      const [{ 通す }, 収まる] = await Promise.all([通すの約束, 回数に収まるか(本人, env.RATE_HOZON)]);
       if (!通す) return 答える({ error: 'この機能は、団体または個人でログインした人だけが使えます' }, 403, 許す出どころ);
       if (!収まる) return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
       if (await 印で止めるか()) return 印で断る();
@@ -209,7 +209,7 @@ export default {
     // 回数。人ごとは前ぶれと同時に数える（数えられるのはその人の枠だけ）。全員合わせての回数は、通してよい人と
     // 分かってから数える（2026-11-07 のレビュー。同時に数えると、断られる匿名の口座を作り替えて呼び続けるだけで
     // 全員の枠が埋まり、みなが「混み合っています」になった）
-    const [通す, 人で] = await Promise.all([通すの約束, 回数に収まるか(本人, env.RATE)]);
+    const [{ 通す, 団体: 通した団体 }, 人で] = await Promise.all([通すの約束, 回数に収まるか(本人, env.RATE)]);
     if (!通す) {
       体の約束.catch(() => {});
       return 答える({ error: 'この機能は、団体または個人でログインした人だけが使えます' }, 403, 許す出どころ);
@@ -220,7 +220,8 @@ export default {
     if (await 印で止めるか()) return 印で断る();
     // 1 日の回数の上限（src/ichinichi.mjs）。返事は Gemini の 1 日の枠切れと同じ形にする。アプリは
     // 「PerDayPerProject」で 1 日の上限と見分け、送り直さずに「夕方に戻ります」と知らせる
-    const 付いた団体 = request.headers.get('X-Kyudo-Group') || '';
+    // 見出しが無いときは、通すときに名簿から見つけた団体で数える（見出しを外すと団体の上限が効かなかった。S4）
+    const 付いた団体 = request.headers.get('X-Kyudo-Group') || 通した団体 || '';
     const 一日 = await 一日の枠に収まるか(env, {
       企画: 本人.aud,
       人: 本人.sub,
@@ -995,17 +996,19 @@ async function 控えの印(鍵) {
 }
 async function 雲の控えを読む(env, 印) {
   try {
-    const 行 = await env.KAIZEN_DB.prepare('SELECT pass, until, checked FROM toosu WHERE key = ?1').bind(印).first();
-    return 行 ? { 通す: 行.pass === 1, 期限: Number(行.until) || 0, 確かめた: Number(行.checked) || 0 } : null;
+    const 行 = await env.KAIZEN_DB.prepare('SELECT pass, until, checked, grp FROM toosu WHERE key = ?1').bind(印).first();
+    return 行
+      ? { 通す: 行.pass === 1, 期限: Number(行.until) || 0, 確かめた: Number(行.checked) || 0, 団体: String(行.grp || '') }
+      : null;
   } catch {
     return null;
   }
 }
 function 雲の控えに書く(env, 印, 控え) {
   return env.KAIZEN_DB.prepare(
-    'INSERT INTO toosu (key, pass, until, checked) VALUES (?1, ?2, ?3, ?4) ON CONFLICT(key) DO UPDATE SET pass = excluded.pass, until = excluded.until, checked = excluded.checked'
+    'INSERT INTO toosu (key, pass, until, checked, grp) VALUES (?1, ?2, ?3, ?4, ?5) ON CONFLICT(key) DO UPDATE SET pass = excluded.pass, until = excluded.until, checked = excluded.checked, grp = excluded.grp'
   )
-    .bind(印, 控え.通す ? 1 : 0, 控え.期限, 控え.確かめた)
+    .bind(印, 控え.通す ? 1 : 0, 控え.期限, 控え.確かめた, 控え.団体 || '')
     .run()
     .catch(() => {});
 }
@@ -1025,11 +1028,22 @@ function 雲の控えに書く(env, 印, 控え) {
  * @param {{読む?: (道: string, 中身?: object) => Promise<Response>, 今?: number, 団体?: string, env?: object, 待たずに?: Function}} [道具]
  */
 export async function 通してよい人か(本人, 証, 道具 = {}) {
+  return (await 通してよい人かと団体(本人, 証, 道具)).通す;
+}
+
+/**
+ * 通してよい人か と同じ。通すときは、どの団体の人として通したか（団体）も返す（見出しが無いときは名簿から見つけた団体）。
+ * 1 日の上限の団体の数えに使う。前は見出しの団体しか数えず、見出しを外して呼ぶと団体の上限（1 日 1,000 回）が効かなかった
+ * （2026-11-20 の別の AI の点検の S4）
+ * @returns {Promise<{通す: boolean, 団体: string}>}
+ */
+export async function 通してよい人かと団体(本人, 証, 道具 = {}) {
   const 今 = 道具.今 || Date.now();
   const 団体 = /^[0-9A-Za-z_-]{1,64}$/.test(String(道具.団体 || '')) ? String(道具.団体) : '';
   const 鍵 = `${本人.aud}|${本人.sub}|${団体}`;
   let 控え = 通す控え.get(鍵);
-  if (控え && 控え.期限 > 今) return 控え.通す;
+  const 答え = (x) => ({ 通す: !!(x && x.通す), 団体: (x && x.通す && (団体 || x.団体)) || '' });
+  if (控え && 控え.期限 > 今) return 答え(控え);
   const env = 道具.env;
   const 印 = env && env.KAIZEN_DB ? await 控えの印(鍵) : '';
   if (印) {
@@ -1037,7 +1051,7 @@ export async function 通してよい人か(本人, 証, 道具 = {}) {
     if (雲 && (!控え || 雲.確かめた > 控え.確かめた)) 控え = 雲;
     if (控え && 控え.期限 > 今) {
       通す控え.set(鍵, 控え);
-      return 控え.通す;
+      return 答え(控え);
     }
   }
   const 根 = `https://firestore.googleapis.com/v1/projects/${本人.aud}/databases/(default)/documents`;
@@ -1056,19 +1070,30 @@ export async function 通してよい人か(本人, 証, 道具 = {}) {
         body: 中身 ? JSON.stringify(中身) : undefined,
       }));
   let 通す;
+  let 見つけた団体 = 団体;
   try {
-    通す = 団体 ? await 団体を一度で読めるか(団体, 読む) : await 団体を読めるか(本人, 読む);
+    if (団体) 通す = await 団体を一度で読めるか(団体, 読む);
+    else {
+      const 見つけた = await 団体を読めるか(本人, 読む);
+      通す = !!見つけた;
+      見つけた団体 = typeof 見つけた === 'string' ? 見つけた : '';
+    }
   } catch {
-    return !!(控え && 控え.通す && 今 - 控え.確かめた < 届かないときの延長);
+    return 答え(控え && 控え.通す && 今 - 控え.確かめた < 届かないときの延長 ? 控え : null);
   }
-  const 新 = { 通す, 期限: 今 + (通す ? 通す控えの長さ.通す : 通す控えの長さ.通さない), 確かめた: 今 };
+  const 新 = {
+    通す,
+    期限: 今 + (通す ? 通す控えの長さ.通す : 通す控えの長さ.通さない),
+    確かめた: 今,
+    団体: 通す ? 見つけた団体 : '',
+  };
   通す控え.set(鍵, 新);
   if (通す控え.size > 5000) 通す控え.clear();
   if (印) {
     const 書く = 雲の控えに書く(env, 印, 新);
     if (道具.待たずに) 道具.待たずに(書く);
   }
-  return 通す;
+  return 答え(新);
 }
 
 /** 団体が分かっているとき：その人の証で groups/{団体} を 1 回読めるか（決まりが決める） */
@@ -1106,8 +1131,8 @@ async function 団体を読めるか(本人, 読む) {
   if (!団体 || !/^[0-9A-Za-z_-]{1,64}$/.test(団体)) return false;
   const r = await 読む(`/groups/${団体}`);
   if (届かない(r)) throw new Error('届かない');
-  // 団体の文書が無くても（404）、読むのを許されたなら決まりは通している
-  return r.ok || r.status === 404;
+  // 団体の文書が無くても（404）、読むのを許されたなら決まりは通している。通すときは見つけた団体を返す（1 日の上限の数え）
+  return r.ok || r.status === 404 ? 団体 : false;
 }
 
 /** Firebase の ID トークンを確かめる。返すのは中身（sub, aud, ...） */
