@@ -13,6 +13,7 @@ import worker, {
   打ち切った模型を書く,
   答えた模型を忘れる,
   答えた模型を見る長さ,
+  写真で答えた模型を見る長さ,
   遅いを覚える長さ,
   見回る,
   見回りの時刻,
@@ -108,6 +109,25 @@ test('直近の答え：7 日の中で最後に答えた模型と時刻。8 日�
   assert.deepStrictEqual(await 直近の答え(env, '流し読み', 今), { 模型: 'gemini-3.6-flash', 時: 今 - 3 * 86_400_000 });
   答えた模型を忘れる();
   assert.deepStrictEqual(await 直近の答え(偽のD1({ 落ちる: true }).env, '流し読み', 今), { 模型: '', 時: 0 });
+  答えた模型を忘れる();
+});
+
+test('直近の答え：写真の読み取り（生成）は 30 分だけ見る（写真の並びは変えない。遅い 3.7 を次の日の先頭に回さない）', async () => {
+  答えた模型を忘れる();
+  const 今 = 10_000_000_000;
+  assert.strictEqual(写真で答えた模型を見る長さ, 30 * 60 * 1000);
+  const { env } = 偽のD1({
+    呼んだ: [
+      { at: 今 - 31 * 60_000, kind: '生成', status: 200, used: 'gemini-3.7-flash' },
+      { at: 今 - 3 * 86_400_000, kind: '流し読み', status: 200, used: 'gemini-3.6-flash' },
+    ],
+  });
+  assert.deepStrictEqual(await 直近の答え(env, '生成', 今), { 模型: '', 時: 0 }, '31 分前の写真の答えで先頭を替えた');
+  答えた模型を忘れる();
+  assert.strictEqual((await 直近の答え(env, '流し読み', 今)).模型, 'gemini-3.6-flash', 'AI チャットは 7 日見る');
+  答えた模型を忘れる();
+  const 近い = 偽のD1({ 呼んだ: [{ at: 今 - 29 * 60_000, kind: '生成', status: 200, used: 'gemini-3.5-flash' }] });
+  assert.strictEqual((await 直近の答え(近い.env, '生成', 今)).模型, 'gemini-3.5-flash');
   答えた模型を忘れる();
 });
 
