@@ -35,7 +35,8 @@ test('答えない模型は上限で打ち切り、次の模型の答えを返�
   assert.strictEqual(送った.length, 2);
 });
 
-test('最後の模型は 1 つの上限では打ち切らず、全体の締め切りまで待つ（締め切りの前に答えればそのまま返す）', async () => {
+test('最後の模型は全体の締め切りでは打ち切らない（1 回の上限まで待ち、その前に答えればそのまま返す。11/20 本人「1 回ごとに 95 秒」）', async () => {
+  // 全体の締め切り（10ms）を過ぎてから答えても、1 回の上限（1000ms）の内なら届く（遅くても答えの来た写真・チャットは使われていた）
   const 結果 = await 上流へ送る({
     候補: [{ 模型: 'gemini-3.5-flash', 道: 生成('gemini-3.5-flash') }],
     鍵たち: ['a'],
@@ -43,7 +44,8 @@ test('最後の模型は 1 つの上限では打ち切らず、全体の締め�
     search: '',
     method: 'POST',
     待ちの上限: 10,
-    全体の締め切り: 1000,
+    全体の締め切り: 10,
+    一回の上限: 1000,
     fetch: () => new Promise((ok) => setTimeout(() => ok(new Response('{}', { status: 200 })), 40)),
     待つ: async () => {},
   });
@@ -52,14 +54,14 @@ test('最後の模型は 1 つの上限では打ち切らず、全体の締め�
   assert.strictEqual(結果.締め切りを過ぎた, false);
 });
 
-test('最後の模型も全体の締め切りで打ち切り、混雑と同じ形の 503 を返す（Cloudflare の 524 まで待たせない。11/20 本人）', async () => {
+test('最後の模型も 1 回の上限で打ち切り、混雑と同じ形の 503 を返す（Cloudflare の 524 まで待たせない）', async () => {
   const 結果 = await 上流へ送る({
     候補: [{ 模型: 'gemini-3.5-flash', 道: 生成('gemini-3.5-flash') }],
     鍵たち: ['a'],
     始めの鍵: 0,
     search: '',
     method: 'POST',
-    全体の締め切り: 80,
+    一回の上限: 80,
     fetch: 黙る,
     待つ: async () => {},
   });
@@ -71,7 +73,7 @@ test('最後の模型も全体の締め切りで打ち切り、混雑と同じ�
   assert.match(中身.error.message, /締め切り/, 'アプリが送り直さない目印（締め切り）が無い');
 });
 
-test('最後の模型の混みの待ちが締め切りを越えるなら、待たずにその 503 を返す', async () => {
+test('最後の模型の混みの待ちは、全体の締め切りでは止めない（2・4・8 秒待って送り直し、最後の 503 を返す）', async () => {
   const 待った = [];
   let 送った = 0;
   const 結果 = await 上流へ送る({
@@ -94,9 +96,8 @@ test('最後の模型の混みの待ちが締め切りを越えるなら、待�
       待った.push(ms);
     },
   });
-  // 2 秒の待ちは締め切りの 1 秒前までに収まるので待つ。次の 4 秒は収まらないので、2 回目の 503 をそのまま返す
-  assert.deepStrictEqual(待った, [2000]);
-  assert.strictEqual(送った, 2);
+  assert.deepStrictEqual(待った, [2000, 4000, 8000]);
+  assert.strictEqual(送った, 4);
   assert.strictEqual(結果.返事.status, 503);
   assert.strictEqual(結果.締め切りを過ぎた, false);
   assert.strictEqual((await 結果.返事.json()).error.message, 'high demand', '上流の 503 の体を捨てた');
