@@ -136,6 +136,40 @@ test('入れない：見つからない・名簿にいない・期限切れの�
   assert.strictEqual(雲.書いた.length, 0, '入れないのに証を書いた');
 });
 
+test('入れない：卒業・退部にした人（11/26 本人）。在籍の様子と団体の種類・呼び方を返し、証は書かない', async () => {
+  証の控えを忘れる();
+  const 雲 = 偽の雲(
+    団体の文書({
+      '/groups/100001/members/m2': { name: 欄.字('卒業 一'), enrollment: 欄.字('卒業') },
+      '/groups/100001/members/m3': { name: 欄.字('退部 二'), enrollment: 欄.字('退部') },
+      '/groups/100001/members/m4': { name: 欄.字('前の形 三'), isAlumni: 欄.真 },
+      '/groups/100001/members/m5': {
+        name: 欄.字('戻した 四'),
+        enrollment: 欄.字('在籍'),
+        graduationYear: { integerValue: '2025' },
+      },
+      '/groups/100001/member_lookup/SKTGYQ': { memberId: 欄.字('m2') },
+      '/groups/100001/member_lookup/TAXBUZ': { memberId: 欄.字('m3') },
+      '/groups/100001/member_lookup/MAEN2K': { memberId: 欄.字('m4') },
+      '/groups/100001/member_lookup/MDSU3W': { memberId: 欄.字('m5') },
+      '/groups/100001/config/app_settings': { groupType: 欄.字('shakaijin'), customWording: 欄.字('club') },
+    })
+  );
+  const env = { FIREBASE_SA_KEYS: JSON.stringify(await 偽のサービスアカウント()) };
+  const 試す = (鍵) =>
+    部員を確かめる(依頼({ 団体: '100001', 鍵 }), env, 匿名, {
+      送る: 雲.送る,
+      回数に収まるか: いつも収まる,
+      今: Date.parse('2026-11-26T00:00:00Z'),
+    }).then((r) => r.中身);
+  assert.deepStrictEqual(await 試す('SKTGYQ'), { 結果: '在籍していない', 在籍: '卒業', 種類: 'shakaijin', 呼び方: 'club' });
+  assert.strictEqual((await 試す('TAXBUZ')).在籍, '退部');
+  assert.strictEqual((await 試す('MAEN2K')).在籍, '卒業', '前の形の卒業生の印で入れた');
+  assert.strictEqual(雲.書いた.length, 0, '卒業・退部の人の証を書いた');
+  // 在籍の項目が「在籍」なら、前の形の印が残っていても入れる
+  assert.strictEqual((await 試す('MDSU3W')).結果, '入れた');
+});
+
 test('入れてよいか：猶予のあいだは確認前の団体も通す。12/2 までは 4 桁も通す。期限内の招待は通す', () => {
   const 帳面 = { fields: {} };
   const 逆 = (鍵の欄 = {}) => ({ fields: { memberId: 欄.字('m1'), ...鍵の欄 } });

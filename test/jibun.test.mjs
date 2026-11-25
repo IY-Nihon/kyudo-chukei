@@ -280,7 +280,12 @@ test('断る：鍵が無い（404）・匿名でない・所属の証が無い�
   const 名簿なし = 団体の文書();
   delete 名簿なし[`/groups/${団体}/members/m1`];
   assert.strictEqual((await 呼ぶ({ 団体, 形: '差分' }, 名簿なし)).状態, 403);
-  const 確認まだ = 団体の文書({ [`/group_accounts/${団体}`]: { verified: false } });
+  // 卒業・退部にした人には渡さない（11/26 本人）
+  for (const 在籍 of ['卒業', '退部']) {
+    const 抜けた = 団体の文書({ [`/groups/${団体}/members/m1`]: { id: 'm1', name: '山田 太郎', enrollment: 在籍 } });
+    assert.strictEqual((await 呼ぶ({ 団体, 形: '差分' }, 抜けた)).状態, 403, `${在籍}の人に記録を渡した`);
+  }
+  const 確認まだ =団体の文書({ [`/group_accounts/${団体}`]: { verified: false } });
   assert.ok(Date.parse('2026-11-20T00:00:00Z') > 猶予の終わり);
   assert.strictEqual((await 呼ぶ({ 団体, 形: '差分' }, 確認まだ)).状態, 403);
   const 四桁 = 団体の文書({ [`/member_claims/${本人.sub}`]: { groupId: 団体, memberId: 'm1', personalId: '1234' } });

@@ -28,7 +28,8 @@
  *   鍵（FIREBASE_SA_KEYS）が置かれていなければ 404（古い中継と同じ。アプリは前の道で記録を直接読む）
  *
  * ■ 確かめること（決まりの isClaimedMember と同じ）
- *   所属の証（member_claims/{uid}）の団体が体の団体と同じ・名簿にいる・4 桁の証は 12/3 まで・団体が確認済み（か猶予の間）
+ *   所属の証（member_claims/{uid}）の団体が体の団体と同じ・名簿にいて在籍している（卒業・退部でない。11/26）・
+ *   4 桁の証は 12/3 まで・団体が確認済み（か猶予の間）。確かめは 1 分控えるので、卒業・退部にしてから最大 1 分は渡ることがある
  *
  * ■ 無料枠
  *   1 回で Firestore を 3 回（証・帳面・名簿）と記録の 1 ページ（25 件まで）読む。Workers の無料枠は 1 回の CPU が
@@ -38,6 +39,7 @@
  */
 
 import { サービスアカウントを選ぶ, サービスの証, 猶予の終わり, 四桁の終わり } from './kojin.mjs';
+import { 在籍しているか } from './zaiseki.mjs';
 
 /** 1 回で返す記録の数の上限（CPU の上限に収めるため。上の「無料枠」） */
 export const ページ = 25;
@@ -337,6 +339,8 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
       // URL の道には % で表して入れる（id に ? や # や日本語が入っていても届くように）
       const 部員 = await 読む(`/groups/${団体}/members/${encodeURIComponent(memberId)}`);
       if (!部員) return { 状態: 403, 中身: { error: '名簿にいません' } };
+      // 卒業・退部にした人には渡さない（2026-11-26 本人。決まりの isClaimedMember と同じ見方。src/zaiseki.mjs）
+      if (!在籍しているか(部員.fields)) return { 状態: 403, 中身: { error: '在籍していません' } };
       自分名 = 字(部員.fields && 部員.fields.name);
       if (確かめの控え.size > 2000) 確かめの控え.clear(); // 実体の中で増えすぎないように
       確かめの控え.set(控えの鍵, { memberId, 自分名, 期限: 今 + 確かめの控えの長さ });
