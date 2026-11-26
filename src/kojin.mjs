@@ -81,13 +81,22 @@ function PEMをバイトに(pem) {
   return out;
 }
 
+/** Realtime Database を読み書きするときの範囲（ライブの期限を延ばす src/enchou.mjs。2026-11-26） */
+export const RTDBの範囲 = 'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email';
+
 /**
- * サービスアカウントで Firestore を読み書きするアクセストークン（1 時間）。控えがあればそれを使う
+ * サービスアカウントで Firestore を読み書きするアクセストークン（1 時間）。控えがあればそれを使う。
+ * 範囲 を替えると別の証（Realtime Database は RTDBの範囲。サービスアカウントに Realtime Database の役割が要る）
  * @param {{client_email: string, private_key: string, private_key_id?: string}} 鍵
  * @param {string} 企画
  */
-export async function サービスの証(鍵, 企画, { 送る = fetch, 今 = Date.now() } = {}) {
-  const 控え = 証の控え.get(企画);
+export async function サービスの証(
+  鍵,
+  企画,
+  { 送る = fetch, 今 = Date.now(), 範囲 = 'https://www.googleapis.com/auth/datastore' } = {}
+) {
+  const 控えの鍵 = 範囲 === 'https://www.googleapis.com/auth/datastore' ? 企画 : `${企画}|${範囲}`;
+  const 控え = 証の控え.get(控えの鍵);
   if (控え && 控え.期限 > 今 + 60000) return 控え.証;
   const 秒 = Math.floor(今 / 1000);
   const 本文 =
@@ -96,7 +105,7 @@ export async function サービスの証(鍵, 企画, { 送る = fetch, 今 = Da
     字をb64url(
       JSON.stringify({
         iss: 鍵.client_email,
-        scope: 'https://www.googleapis.com/auth/datastore',
+        scope: 範囲,
         aud: 'https://oauth2.googleapis.com/token',
         iat: 秒,
         exp: 秒 + 3600,
@@ -120,7 +129,7 @@ export async function サービスの証(鍵, 企画, { 送る = fetch, 今 = Da
   });
   const j = await r.json().catch(() => ({}));
   if (!r.ok || !j.access_token) throw new Error('サービスアカウントの証を取れません');
-  証の控え.set(企画, { 証: j.access_token, 期限: 今 + (Number(j.expires_in) || 3600) * 1000 });
+  証の控え.set(控えの鍵, { 証: j.access_token, 期限: 今 + (Number(j.expires_in) || 3600) * 1000 });
   return j.access_token;
 }
 

@@ -40,6 +40,7 @@ import { 部員を確かめる } from './kojin.mjs';
 import { 管理者を確かめる } from './kanri.mjs';
 import { 自分の記録を返す } from './jibun.mjs';
 import { 一日の枠に収まるか, 古い一日の数を消す } from './ichinichi.mjs';
+import { 期限を延ばす } from './enchou.mjs';
 import { 鍵の置き場を作る, 署名を確かめる, 印を確かめる, 印を強いるか } from './kagi.mjs';
 
 const 公開鍵の場所 = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
@@ -168,6 +169,16 @@ export default {
         return 答える({ error: '呼びすぎです。少し待ってからお試しください' }, 429, 許す出どころ);
       if (await 印で止めるか()) return 印で断る();
       const 結果 = await 自分の記録を返す(request, env, 本人);
+      return 答える(結果.中身, 結果.状態, 許す出どころ);
+    }
+
+    // ライブのリンクの期限を延ばす（src/enchou.mjs。2026-11-26 B3）。所属は enchou.mjs がサービスアカウントで読んで確かめる。
+    // 回数は人ごとに 1 分 10 回（部員のログインと同じ枠の数え方）
+    if (url.pathname === '/enchou') {
+      if (!(await 回数に収まるか({ sub: '延長:' + 本人.sub }, env.RATE_KOJIN)))
+        return 答える({ error: '呼びすぎです。1 分ほど待ってからお試しください' }, 429, 許す出どころ);
+      if (await 印で止めるか()) return 印で断る();
+      const 結果 = await 期限を延ばす(request, env, 本人);
       return 答える(結果.中身, 結果.状態, 許す出どころ);
     }
 
