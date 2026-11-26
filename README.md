@@ -95,6 +95,21 @@ node --test test/*.mjs                   # 手元の検査（role の直し方�
 鍵を替えるときは Google AI Studio で新しい鍵を作り、`secret put` で置き換えてから古い鍵を消す。
 設定（許す出どころ・模型・企画）は `wrangler.toml` の `[vars]`。
 
+## 検証用の中継（2026-11-26）
+
+検証環境（kyudoscoremanager-stg）のアプリは、本番とは別の Worker `kyudo-gemini-chukei-stg` を呼ぶ（`wrangler.toml` の `[env.stg]`）。
+検証環境の証だけを受け、Gemini の鍵は本番の鍵のうち 3 つを共有し、呼ぶ全員の 1 日の合計を `DAILY_TOTAL`（300 回）までにする。
+改善のための保存の D1（`kyudo-kaizen-stg`）と KV も本番と分けてある。1 時間ごとの見回りは置かない。
+
+```bash
+npx wrangler deploy --env stg                                        # 配る
+npx wrangler secret put GEMINI_API_KEYS --env stg                    # 本番の鍵のうち 3 つ（, 区切り）
+npx wrangler secret put FIREBASE_SA_KEYS --env stg < 検証環境の鍵.json  # 部員のログイン・管理者の合言葉・自分の記録
+npx wrangler d1 migrations apply kyudo-kaizen-stg --env stg --remote # D1 の形（本番の D1 に足したら、こちらにも）
+```
+
+本番の中継（`[vars]`）から検証環境の企画と localhost を外すのは、アプリの次の配信の日（検証環境の束がこちらを呼ぶように替えてから）。
+
 ## 通し検査（検証環境の団体の証で）
 
 アプリ側の `scripts/fb-rest.mjs` で検証環境の証を取り、証なし＝401、偽の証＝401、

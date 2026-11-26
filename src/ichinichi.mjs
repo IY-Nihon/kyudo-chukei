@@ -9,14 +9,16 @@
  * ■ 数え方
  *   通してよい人・App Check の印を通ったあとの、Gemini への呼び出しだけを数える（/hozon・/kojin は数えない）。
  *   人ごと（証の sub）と、団体ごと（アプリが付ける X-Kyudo-Group。通してよい人かで読めると確かめた団体）。
+ *   全体（DAILY_TOTAL。中継を呼ぶ全員の合計。検証用の中継だけに置く：2026-11-26 S2 本人「本番の鍵 3 つを共有し、
+ *   1 日の合計の上限を付ける」。検証環境の試しのパスワードは公開の倉庫の履歴に残ったので、誰でも入って呼べる）。
  *   日の境目は Gemini の枠と同じ米国太平洋時間の 0 時（日本の 16 時・冬は 17 時）。アプリの「夕方に戻ります」の
  *   知らせがそのまま合う。
  *   D1 の ichinichi に置く。鍵はハッシュで、人も団体も分からない。古い日は定時の処理が消す。
  *   D1 に届かないときは通す（守りが 1 つ減るだけ。中継は止めない）。
  */
 
-/** 上限（wrangler.toml の DAILY_PERSON・DAILY_GROUP が無いとき）。0 は数えない */
-export const 既定の一日の上限 = { 人: 300, 団体: 1000 };
+/** 上限（wrangler.toml の DAILY_PERSON・DAILY_GROUP・DAILY_TOTAL が無いとき）。0 は数えない（全体は既定で数えない） */
+export const 既定の一日の上限 = { 人: 300, 団体: 1000, 全体: 0 };
 
 /** 枠の日（米国太平洋時間の YYYY-MM-DD） */
 export function 枠の日(今 = Date.now()) {
@@ -41,9 +43,9 @@ function 上限を読む(値, 既定) {
 
 /**
  * 1 回ぶん数えて、上限に収まるかを返す。
- * @param {object} env KAIZEN_DB・DAILY_PERSON・DAILY_GROUP
+ * @param {object} env KAIZEN_DB・DAILY_PERSON・DAILY_GROUP・DAILY_TOTAL
  * @param {{企画: string, 人: string, 団体?: string}} 誰
- * @returns {Promise<{収まる: boolean, 越えた: ''|'人'|'団体'}>}
+ * @returns {Promise<{収まる: boolean, 越えた: ''|'人'|'団体'|'全体'}>}
  */
 export async function 一日の枠に収まるか(env, 誰, 今 = Date.now()) {
   const 通す = { 収まる: true, 越えた: '' };
@@ -51,11 +53,14 @@ export async function 一日の枠に収まるか(env, 誰, 今 = Date.now()) {
   const 上限 = {
     人: 上限を読む(env.DAILY_PERSON, 既定の一日の上限.人),
     団体: 上限を読む(env.DAILY_GROUP, 既定の一日の上限.団体),
+    全体: 上限を読む(env.DAILY_TOTAL, 既定の一日の上限.全体),
   };
   const 日 = 枠の日(今);
   const 数える = [];
   if (上限.人 > 0) 数える.push({ 種: '人', 鍵: `${日}|${誰.企画}|人|${誰.人}` });
   if (上限.団体 > 0 && 誰.団体) 数える.push({ 種: '団体', 鍵: `${日}|${誰.企画}|団体|${誰.団体}` });
+  // 全体は企画を分けずに数える（中継を呼ぶ全員の合計）
+  if (上限.全体 > 0) 数える.push({ 種: '全体', 鍵: `${日}|全体` });
   if (!数える.length) return 通す;
   try {
     const 文 = env.KAIZEN_DB.prepare(

@@ -37,8 +37,22 @@ test('枠の日は米国太平洋時間（Gemini の枠と同じ境目。日本�
   assert.equal(枠の日(Date.UTC(2026, 10, 13, 8, 0)), '2026-11-13'); // 日本 17:00
 });
 
-test('既定は 1 人 300 回・1 団体 1,000 回', () => {
-  assert.deepEqual(既定の一日の上限, { 人: 300, 団体: 1000 });
+test('既定は 1 人 300 回・1 団体 1,000 回。全体は数えない（検証用の中継だけ DAILY_TOTAL で付ける）', () => {
+  assert.deepEqual(既定の一日の上限, { 人: 300, 団体: 1000, 全体: 0 });
+});
+
+test('全体の上限（DAILY_TOTAL）は、人・団体・企画を替えても合わせて数える（2026-11-26 S2）', async () => {
+  const env = { KAIZEN_DB: 偽のDB(), DAILY_PERSON: '100', DAILY_GROUP: '100', DAILY_TOTAL: '3' };
+  assert.equal((await 一日の枠に収まるか(env, { 企画: 'p', 人: 'a', 団体: 'g' }, 昼)).収まる, true);
+  assert.equal((await 一日の枠に収まるか(env, { 企画: 'p', 人: 'b', 団体: 'h' }, 昼)).収まる, true);
+  assert.equal((await 一日の枠に収まるか(env, { 企画: 'q', 人: 'c' }, 昼)).収まる, true);
+  assert.deepEqual(await 一日の枠に収まるか(env, { 企画: 'p', 人: 'd', 団体: 'i' }, 昼), { 収まる: false, 越えた: '全体' });
+  // 次の枠の日は数え直す
+  assert.equal((await 一日の枠に収まるか(env, { 企画: 'p', 人: 'd' }, 昼 + 86400000)).収まる, true);
+  // 置かなければ数えない（本番の中継）
+  const 本番 = { KAIZEN_DB: 偽のDB(), DAILY_PERSON: '100', DAILY_GROUP: '100' };
+  for (let i = 0; i < 5; i++) assert.equal((await 一日の枠に収まるか(本番, { 企画: 'p', 人: 'u' + i }, 昼)).収まる, true);
+  assert.equal([...本番.KAIZEN_DB.表.keys()].length, 5, '全体を数えた');
 });
 
 test('人ごとの上限を越えたら断る。別の人は通る', async () => {

@@ -103,3 +103,79 @@ crons = ["17 18 * * *", "7 * * * *"]
 # 日本（Google Cloud 東京）の近くに固定する
 [placement]
 region = "gcp:asia-northeast1"
+
+# ── 検証用の中継（2026-11-26 S2。11/25 本人「本番と同じ 3 つを使うのは？」→ 本番の鍵 3 つを共有し、1 日の合計の上限）──
+# 検証環境の試しのパスワードは公開の倉庫の履歴に残ったので、誰でも検証環境に入って中継を呼べる。本番の中継から分け、
+# 検証環境の証だけを受け、1 日の合計を DAILY_TOTAL 回までにする（src/ichinichi.mjs の 全体）。本番の中継は 7 つの鍵のまま。
+#
+#   npx wrangler deploy --env stg                                  … 配る（本番の中継とは別の Worker）
+#   npx wrangler secret put GEMINI_API_KEYS --env stg              … 本番の鍵のうち 3 つ（, 区切り）。本人が置く
+#   npx wrangler secret put FIREBASE_SA_KEYS --env stg < 鍵.json   … 検証環境のサービスアカウントの鍵（JSON 1 つ）。本人が置く
+#   npx wrangler d1 migrations apply kyudo-kaizen-stg --env stg --remote … D1 の形（本番と同じ migrations）
+#
+# アプリの検証環境向けの束は .env.development.local（と GitHub の Secrets の STG_ENV）の EXPO_PUBLIC_GEMINI_CHUKEI_URL でここを呼ぶ。
+# 改善のための保存（D1・KV）も本番と分けた。1 時間ごとの見回りは置かない（共有の鍵の枠を減らさない。毎日の片付けだけ）
+[env.stg]
+name = "kyudo-gemini-chukei-stg"
+workers_dev = true
+
+[env.stg.vars]
+FIREBASE_PROJECT_IDS = "kyudoscoremanager-stg"
+ALLOWED_ORIGINS = "https://kyudoscoremanager-stg.web.app,https://kyudoscoremanager-stg.firebaseapp.com,http://localhost:8090,http://localhost:8091,http://127.0.0.1:8090,http://127.0.0.1:8091,http://localhost:8081"
+ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash,gemini-4-hydrogen"
+MODEL_CHAIN = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash"
+MODEL_CHAIN_STREAM = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash,gemini-4-hydrogen"
+APPCHECK_MODE = "enforce"
+# 検証環境の束には App Check の鍵を入れていない
+APPCHECK_SKIP_PROJECTS = "kyudoscoremanager-stg"
+DAILY_PERSON = "300"
+DAILY_GROUP = "1000"
+# 検証用の中継を呼ぶ全員の 1 日の合計（11/25 本人「例 300 回」）
+DAILY_TOTAL = "300"
+
+# 回数の上限は本番と同じ数。数える箱（namespace_id）は本番と分ける
+[[env.stg.ratelimits]]
+name = "RATE"
+namespace_id = "2001"
+simple = { limit = 40, period = 60 }
+
+[[env.stg.ratelimits]]
+name = "RATE_ALL"
+namespace_id = "2003"
+simple = { limit = 300, period = 60 }
+
+[[env.stg.ratelimits]]
+name = "RATE_HOZON"
+namespace_id = "2002"
+simple = { limit = 60, period = 60 }
+
+[[env.stg.ratelimits]]
+name = "RATE_KOJIN"
+namespace_id = "2004"
+simple = { limit = 10, period = 60 }
+
+[[env.stg.ratelimits]]
+name = "RATE_KOJIN_GROUP"
+namespace_id = "2005"
+simple = { limit = 60, period = 60 }
+
+[[env.stg.ratelimits]]
+name = "RATE_JIBUN"
+namespace_id = "2006"
+simple = { limit = 120, period = 60 }
+
+[[env.stg.d1_databases]]
+binding = "KAIZEN_DB"
+database_name = "kyudo-kaizen-stg"
+database_id = "5e476fde-13d8-4bcc-bd85-f977ea769126"
+migrations_dir = "migrations"
+
+[[env.stg.kv_namespaces]]
+binding = "KAIZEN_PHOTOS"
+id = "660d2868ffca4bf49cf4860b77bfdad3"
+
+[env.stg.triggers]
+crons = ["17 18 * * *"]
+
+[env.stg.placement]
+region = "gcp:asia-northeast1"
