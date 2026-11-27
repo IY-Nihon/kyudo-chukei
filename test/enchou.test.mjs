@@ -64,13 +64,19 @@ function 偽の雲({ 文書 = {}, ライブ = {} } = {}) {
     }
     if (道.startsWith(`https://${企画}-default-rtdb.firebaseio.com/`)) {
       if (!/firebase\.database/.test(範囲.get(証) || '')) return new Response('{}', { status: 401 });
-      const ライブの道 = decodeURIComponent(道.split('.firebaseio.com/')[1].replace(/\.json$/, ''));
+      const [道の本体, 問い = ''] = 道.split('.firebaseio.com/')[1].split('?');
+      const ライブの道 = decodeURIComponent(道の本体.replace(/\.json$/, ''));
       if (頼み.method === 'PATCH') {
         書いたもの.push(JSON.parse(頼み.body));
         return new Response('{}', { status: 200 });
       }
       const 値 = ライブの道.split('/').reduce((o, k) => (o == null ? null : o[k] ?? null), ライブ);
-      return new Response(JSON.stringify(値), { status: 200 });
+      // shallow は子の名前だけ（値は true）
+      const 返す =
+        問い.includes('shallow=true') && 値 && typeof 値 === 'object'
+          ? Object.fromEntries(Object.keys(値).map((k) => [k, true]))
+          : 値;
+      return new Response(JSON.stringify(返す), { status: 200 });
     }
     throw new Error('知らない宛先 ' + 道);
   };
@@ -92,6 +98,7 @@ const ふつうの雲 = (足す = {}) => ({
   ライブ: {
     live_sessions: {
       [団の枝]: { 練習: { state: { 共有の枝: 共の枝, 閲覧の枝: 見の枝, status: 'active', 期限: 今 + 時間 } } },
+      [共の枝]: { 練習: { state: { status: 'active', 期限: 今 + 時間, archers: [{ name: '部員1' }] } } },
     },
     live_limits: { [共の枝]: 今 + 時間, [見の枝]: 今 + 時間 },
     live_view: { [見の枝]: { 練習: { state: { 期限: 今 + 時間 } } } },
@@ -165,4 +172,18 @@ test('鍵が無ければ 404（古い中継と同じ）・Realtime Database に�
     頼み.method === 'PATCH' ? new Response('{}', { status: 401 }) : 雲.送る(宛先, 頼み);
   const 結果 = await 期限を延ばす(頼む({ 団体, 名前: '練習', 持ち: 12 * 時間 }), env, 団体の人, { 送る: 書けない, 今 });
   assert.equal(結果.状態, 503);
+});
+
+test('共有の盤面がもう無い・保存して終わった（片付けの途中）なら書かない（11/27 の点検）', async () => {
+  const 体 = { 団体, 名前: '練習', 持ち: 12 * 時間 };
+  const 道しるべ = { 練習: { state: { 共有の枝: 共の枝, 閲覧の枝: 見の枝, status: 'active', 期限: 今 + 時間 } } };
+  for (const [訳, 共の盤面] of [
+    ['盤面が無い', {}],
+    ['保存して終わった', { 練習: { state: { status: 'finished' } } }],
+  ]) {
+    const 雲 = 偽の雲(ふつうの雲({ ライブ: { live_sessions: { [団の枝]: 道しるべ, [共の枝]: 共の盤面 } } }));
+    const 結果 = await 期限を延ばす(頼む(体), env, 団体の人, { 送る: 雲.送る, 今 });
+    assert.equal(結果.状態, 404, 訳);
+    assert.equal(雲.書いたもの.length, 0, 訳 + 'なのに書いた');
+  }
 });

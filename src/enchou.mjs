@@ -90,8 +90,10 @@ export async function 期限を延ばす(request, env, 本人, 道具 = {}) {
     return (await r.json()).fields || {};
   };
   const RTDBの道 = (道) => `${RTDBの根}/${道.split('/').map(encodeURIComponent).join('/')}.json`;
-  const RTDBを読む = async (道) => {
-    const r = await 送る(RTDBの道(道), { headers: { Authorization: 'Bearer ' + RTDBの証 } });
+  const RTDBを読む = async (道, 浅く = false) => {
+    const r = await 送る(RTDBの道(道) + (浅く ? '?shallow=true' : ''), {
+      headers: { Authorization: 'Bearer ' + RTDBの証 },
+    });
     if (!r.ok) throw new Error('届かない ' + r.status);
     return r.json();
   };
@@ -130,6 +132,15 @@ export async function 期限を延ばす(request, env, 本人, 道具 = {}) {
       return { 状態: 410, 中身: { error: 'リンクの期限が切れています。続けるときは、新しくライブを配ってください' } };
     const 新しい期限 = 今 + 持ち;
     if (新しい期限 <= 今の期限) return { 状態: 409, 中身: { error: '今の期限より短くはできません', 期限: 今の期限 } };
+    // 共有の盤面がもう無い（保存して片付けた・片付けの途中）なら書かない。書くと 期限 だけの盤面が作り直され、
+    // 決まりが期限（live_limits）の片付けを断って、期限が切れるまで残った（11/27 の点検）
+    // 盤面は大きいので、在るか（項目の名前だけ。shallow）と終わった印だけを読む
+    const [盤面の項目, 盤面の状態] = await Promise.all([
+      RTDBを読む(`live_sessions/${共の枝}/${名前}/state`, true),
+      RTDBを読む(`live_sessions/${共の枝}/${名前}/state/status`),
+    ]);
+    if (!盤面の項目 || 盤面の状態 === 'finished')
+      return { 状態: 404, 中身: { error: 'このライブは配られていません' } };
 
     // 書く（まとめて 1 回）。写しは在るときだけ（無い枝に 期限 だけの写しを作らない）
     const 書くもの = {
