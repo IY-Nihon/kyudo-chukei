@@ -34,7 +34,12 @@ const 鍵 = await 偽のサービスアカウント();
 const env = { FIREBASE_SA_KEYS: JSON.stringify(鍵) };
 
 const 欄に = (o) =>
-  Object.fromEntries(Object.entries(o).map(([k, v]) => [k, v === null ? { nullValue: null } : { stringValue: String(v) }]));
+  Object.fromEntries(
+    Object.entries(o).map(([k, v]) => [
+      k,
+      v === null ? { nullValue: null } : typeof v === 'boolean' ? { booleanValue: v } : { stringValue: String(v) },
+    ])
+  );
 
 /**
  * 偽の雲。文書 は Firestore の道 → 欄、ライブ は Realtime Database の道 → 値。書いたもの を返す。
@@ -89,7 +94,7 @@ const 団体の人 = { aud: 企画, sub: 'owner-uid', email: 'Club@Example.com',
 const 部員 = { aud: 企画, sub: 'anon-1', firebase: { sign_in_provider: 'anonymous' } };
 const ふつうの雲 = (足す = {}) => ({
   文書: {
-    [`group_accounts/${団体}`]: { email: 'club@example.com', id: 団体 },
+    [`group_accounts/${団体}`]: { email: 'club@example.com', id: 団体, verified: true },
     [`groups/${団体}`]: { liveSecret: 団の枝 },
     'member_claims/anon-1': { groupId: 団体, memberId: 'm1' },
     [`groups/${団体}/members/m1`]: { name: '部員1', enrollment: '在籍' },
@@ -186,4 +191,22 @@ test('共有の盤面がもう無い・保存して終わった（片付けの�
     assert.equal(結果.状態, 404, 訳);
     assert.equal(雲.書いたもの.length, 0, 訳 + 'なのに書いた');
   }
+});
+
+test('部員は、4 桁の個人ID の証なら 12/3 から・団体のメールが確認前なら猶予のあと延ばせない（決まりの isClaimedMember と同じ。11/28）', async () => {
+  const 体 = { 団体, 名前: '練習', 持ち: 12 * 時間 };
+  const 四桁 = { 文書: { 'member_claims/anon-1': { groupId: 団体, memberId: 'm1', personalId: '1234' } } };
+  const 十二月二日 = Date.UTC(2026, 11, 2, 12, 0, 0);
+  const 十二月三日 = Date.UTC(2026, 11, 3, 0, 0, 0);
+  const 延ばす = (足す, 時) => {
+    const 雲 = ふつうの雲(足す);
+    // 期限を「今」に合わせる（期限切れで断られないように）
+    雲.ライブ.live_limits = { [共の枝]: 時 + 時間, [見の枝]: 時 + 時間 };
+    return 期限を延ばす(頼む(体), env, 部員, { 送る: 偽の雲(雲).送る, 今: 時 });
+  };
+  assert.equal((await 延ばす(四桁, 十二月二日)).状態, 200, '12/2 までは 4 桁でも延ばせる');
+  assert.equal((await 延ばす(四桁, 十二月三日)).状態, 403, '12/3 から 4 桁の証で延ばせた');
+  const 確認前 = { 文書: { [`group_accounts/${団体}`]: { email: 'club@example.com', id: 団体 } } };
+  assert.equal((await 延ばす(確認前, 今)).状態, 403, '団体のメールが確認前（猶予のあと）なのに延ばせた');
+  assert.equal((await 延ばす(確認前, Date.UTC(2026, 10, 9))).状態, 200, '猶予のあいだは延ばせる');
 });

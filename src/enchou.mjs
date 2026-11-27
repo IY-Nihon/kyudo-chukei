@@ -21,7 +21,7 @@
  *   ・期限：配った枝の期限がまだ切れていない。新しい期限は今から 持ち（12 時間・24 時間・7 日のどれか）で、今の期限より後
  *   新しい期限は、配った枝と閲覧の枝の期限（live_limits）と、盤面・閲覧用の写し・団体の枝の道しるべの 期限 に書く
  */
-import { サービスアカウントを選ぶ, サービスの証, RTDBの範囲 } from './kojin.mjs';
+import { サービスアカウントを選ぶ, サービスの証, RTDBの範囲, 猶予の終わり, 四桁の終わり } from './kojin.mjs';
 import { 在籍しているか } from './zaiseki.mjs';
 
 const IDの形 = /^[0-9A-Za-z_-]{1,64}$/;
@@ -33,6 +33,7 @@ const 名前に使えない = /[/.#$[\]\u0000-\u001f\u007f]/;
 const 枝の形 = (枝) => typeof 枝 === 'string' && 枝.length >= 20 && 枝.length <= 64 && !名前に使えない.test(枝);
 
 const 字の欄 = (欄) => (欄 && typeof 欄.stringValue === 'string' ? 欄.stringValue : '');
+const 字の欄の真偽 = (欄) => !!(欄 && 欄.booleanValue === true);
 
 /**
  * 体を読んで確かめる（雲には触らない。検査できるよう外に出す）
@@ -110,7 +111,11 @@ export async function 期限を延ばす(request, env, 本人, 道具 = {}) {
     } else {
       const 証の欄 = await 文書を読む(`member_claims/${encodeURIComponent(本人.sub)}`);
       const memberId = 証の欄 && 字の欄(証の欄.groupId) === 団体 ? 字の欄(証の欄.memberId) : '';
-      if (memberId) {
+      // 決まりの isClaimedMember と同じく、4 桁の個人ID の証は 12/3 まで・団体のメールが確認済み（か猶予のあいだ）
+      //（/jibun と同じ。11/28 の点検：サービスアカウントで書くので決まりを通らない）
+      const 四桁で終わった = /^[0-9]{4}$/.test(字の欄((証の欄 || {}).personalId)) && 今 >= 四桁の終わり;
+      const 団体がまだ = !(字の欄の真偽(帳面.verified) || 今 < 猶予の終わり);
+      if (memberId && !四桁で終わった && !団体がまだ) {
         const 名簿 = await 文書を読む(`groups/${団体}/members/${encodeURIComponent(memberId)}`);
         通す = !!名簿 && 在籍しているか(名簿);
       }

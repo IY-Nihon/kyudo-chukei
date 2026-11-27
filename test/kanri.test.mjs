@@ -74,7 +74,19 @@ function 偽の雲() {
 
 function 偽の置き場() {
   const 表 = new Map();
-  return { 表, 読む: async (鍵) => (表.has(鍵) ? structuredClone(表.get(鍵)) : null), 書く: async (鍵, 値) => void 表.set(鍵, 値) };
+  return {
+    表,
+    読む: async (鍵) => (表.has(鍵) ? structuredClone(表.get(鍵)) : null),
+    書く: async (鍵, 値) => void 表.set(鍵, 値),
+    // D1 の 1 回の書き込みと同じく、足すのは割り込まれない
+    一つ足す: async (鍵) => {
+      const 前 = 表.get(鍵) || { 数: 0, 止める: 0 };
+      const 後 = { ...前, 数: (前.数 || 0) + 1 };
+      表.set(鍵, 後);
+      await Promise.resolve();
+      return structuredClone(後);
+    },
+  };
 }
 
 const 頼み = (体) =>
@@ -226,4 +238,17 @@ test('PBKDF2 の回数（11/19 の見直し）：Workers の無料枠（1 回の
   const 前の = await 合言葉をハッシュに('ゆみや2026', undefined, 3000);
   assert.equal(await 合言葉が合うか('ゆみや2026', 前の), true);
   assert.equal(await 合言葉が合うか('ゆみや2027', 前の), false);
+});
+
+test('入る：同時に何本もまちがえても、確かめるのは上限まで。数え漏れずに止まる（11/28 の点検）', async () => {
+  const { 呼ぶ, 雲 } = await 用意();
+  await 呼ぶ({ 操作: '作る', 新しい: 'abcdef12' });
+  雲.印.clear();
+  const 答え = await Promise.all(Array.from({ length: 10 }, () => 呼ぶ({ 操作: '入る', 合言葉: 'xxxxxx' })));
+  const 違う = 答え.filter((a) => a.中身.結果 === '違う').length;
+  assert.ok(違う <= まちがいの上限 - 1, `同時の試しで ${違う} 回も確かめた`);
+  assert.ok(答え.filter((a) => a.状態 === 429).length >= 10 - (まちがいの上限 - 1));
+  // 止まっているので、正しい合言葉でも入れない
+  assert.equal((await 呼ぶ({ 操作: '入る', 合言葉: 'abcdef12' })).状態, 429);
+  assert.equal(雲.印.size, 0);
 });
