@@ -474,3 +474,67 @@ test('先頭に回した模型が頼んだ模型でなければ、その模型�
   assert.ok(体たち['gemini-3.5-flash'].includes('"thinkingBudget":0'), '先頭に回した 3.5 は考えない体');
   assert.ok(!体たち['gemini-3.6-flash'].includes('thinkingBudget'), '頼んだ 3.6 は元の体');
 });
+
+test('体の骨（11/28）：写真の base64 を抜いた字で見る。考えない体はバイトのまま差し込み、写真は 1 字も変えない', async () => {
+  const { 体の骨 } = await import('../src/index.mjs');
+  const 写真 = 'QUJD'.repeat(300_000);
+  const 元の字 = JSON.stringify({
+    contents: [
+      {
+        role: 'user',
+        parts: [
+          { text: '文に "generationConfig":{ や "data":"x" と書いてあっても本物ではない' },
+          { inlineData: { mimeType: 'image/jpeg', data: 写真 } },
+          { inlineData: { mimeType: 'image/png', data: 'c2hvcnQ=' } },
+        ],
+      },
+    ],
+    generationConfig: { responseMimeType: 'application/json' },
+  });
+  const 元 = new TextEncoder().encode(元の字);
+  const 骨 = 体の骨(元);
+  assert.equal(骨.抜いた, true);
+  assert.ok(骨.字.length < 1000, '写真が骨に残っている');
+  assert.ok(骨.字.includes('"data":""'), '抜いた場所は空の data');
+  assert.ok(骨.字.includes('"data":"c2hvcnQ="'), '短い data は残す');
+  assert.ok(骨.字.includes('"responseMimeType":"application/json"'));
+  // 写真の無い体は、丸ごとの字と同じ
+  const 小さい = '{"contents":[{"role":"user","parts":[{"text":"やあ"}]}]}';
+  assert.deepStrictEqual(体の骨(new TextEncoder().encode(小さい)), { 字: 小さい, 抜いた: false });
+
+  for (const 渡す骨 of [undefined, 骨.字]) {
+    const 出 = 考えない体(元, '/v1beta/models/gemini-3.5-flash:generateContent', 渡す骨);
+    const j = JSON.parse(new TextDecoder().decode(出));
+    assert.deepStrictEqual(j.generationConfig, {
+      thinkingConfig: { thinkingBudget: 0 },
+      responseMimeType: 'application/json',
+    });
+    assert.equal(j.contents[0].parts[1].inlineData.data, 写真, '写真が変わった');
+    assert.equal(
+      j.contents[0].parts[0].text,
+      JSON.parse(元の字).contents[0].parts[0].text,
+      '文の中の字に差し込んだ'
+    );
+  }
+  // ArrayBuffer のままでも（中継は request.arrayBuffer() を渡す）
+  const 箱 = 元.buffer.slice(元.byteOffset, 元.byteOffset + 元.byteLength);
+  assert.ok(
+    new TextDecoder()
+      .decode(考えない体(箱, '/v1beta/models/gemini-3.5-flash:generateContent'))
+      .includes('"thinkingBudget":0')
+  );
+  // 終わりに空白・改行のある体も
+  const 空白 = new TextEncoder().encode('{"contents":[],"generationConfig":{}}\n  ');
+  assert.deepStrictEqual(
+    JSON.parse(new TextDecoder().decode(考えない体(空白, '/v1beta/models/gemini-3.5-flash:generateContent')))
+      .generationConfig,
+    {
+      thinkingConfig: { thinkingBudget: 0 },
+    }
+  );
+  // 空の体・JSON でない体はそのまま
+  for (const 字 of ['{}', 'abc', '{"contents":[]']) {
+    const b = new TextEncoder().encode(字);
+    assert.strictEqual(考えない体(b, '/v1beta/models/gemini-3.5-flash:generateContent'), b, 字);
+  }
+});

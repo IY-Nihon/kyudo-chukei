@@ -294,9 +294,11 @@ export default {
     const 種 = request.headers.get('Content-Type');
     const 依頼者 = request.headers.get('x-goog-api-client');
     let 体 = await 体の約束;
-    // 体を字にするのは 1 回だけ（写真では大きく、無料枠の CPU 10ms を食う）。4MB を超えるもの・JSON でないものは字にしない
-    const 体の字 =
-      体 && 体.byteLength < 4 * 1024 * 1024 && /json/i.test(種 || '') ? new TextDecoder().decode(体) : null;
+    // 体を字にするのは 1 回だけ（写真では大きく、無料枠の CPU 10ms を食う）。4MB を超えるもの・JSON でないものは字にしない。
+    // 写真の base64 は抜いて字にする（体の骨。2026-11-28：1〜3MB の写真を丸ごと字にして作り直すと、検証用の中継が
+    // CPU の上限で 503 を返した）
+    const 骨 = 体 && 体.byteLength < 4 * 1024 * 1024 && /json/i.test(種 || '') ? 体の骨(体) : null;
+    const 体の字 = 骨 ? 骨.字 : null;
     // アプリが使わない道具（Google 検索など）と cachedContent は送らない（S3）
     const 断る訳 = 中継しない体か(体の字);
     if (断る訳) return 答える({ error: 断る訳 }, 400, 許す出どころ);
@@ -306,7 +308,8 @@ export default {
     // 正しくは role:"user"。アプリは 2026-09-14 から自分で role:"user" を積むので、いまは
     // 古い束（更新前の PWA）のためだけに残している。文字列の置換ではなく JSON として読み、
     // contents[].role だけを直す（文字列の中に同じ字があっても触らない）
-    if (体の字 !== null) {
+    // 写真を抜いた骨からは作り直さない（写真が消える。写真の体に道具の返事は付かない）
+    if (体の字 !== null && !骨.抜いた) {
       const 直した = 道具の返事のroleを直す(体の字);
       if (直した !== null) 体 = new TextEncoder().encode(直した);
     }
@@ -337,6 +340,8 @@ export default {
       search: url.search || '',
       method: request.method,
       体,
+      // 写真の base64 を抜いた字（考えない体で、もう一度字にしない）
+      骨の字: 体の字,
       種,
       依頼者,
       // 打ち切った模型を D1 に書く（6 時間後ろへ回す。どの実体からも読む）。待たない
@@ -566,7 +571,7 @@ function 上流の道にする(url, 許す模型) {
  *   体?:ArrayBuffer, 種?:string|null, 依頼者?:string|null, fetch?:Function, 待つ?:(ms:number)=>Promise<void>}} 注文
  */
 export async function 上流へ送る(注文) {
-  const { 候補, 鍵たち, search, method, 体, 種, 依頼者 } = 注文;
+  const { 候補, 鍵たち, search, method, 体, 種, 依頼者, 骨の字 } = 注文;
   const 送る = 注文.fetch || fetch;
   const 待つ = 注文.待つ || ((ms) => new Promise((r) => setTimeout(r, ms)));
   let 番 = 注文.始めの鍵;
@@ -634,7 +639,7 @@ export async function 上流へ送る(注文) {
           headers: 頭,
           body: (切り替えの体[順] ??=
             候補[順].模型 !== 頼んだ模型
-              ? チャットの考えを絞る(考えない体(体, 候補[順].道), 候補[順].模型, 候補[順].道)
+              ? チャットの考えを絞る(考えない体(体, 候補[順].道, 骨の字), 候補[順].模型, 候補[順].道)
               : チャットの考えを絞る(体, 候補[順].模型, 候補[順].道)),
         });
       } catch (e) {
@@ -808,9 +813,9 @@ export const チャットの考える量 = 1024;
 export function チャットの考えを絞る(体, 模型, 道) {
   if (!体 || !体.byteLength || !考えを絞る模型.includes(模型) || !/:streamGenerateContent$/.test(道))
     return 体;
-  const 文 = new TextDecoder().decode(体);
+  const 文 = 体の骨(体).字;
   if (文.indexOf('"systemInstruction":') < 0 || 文.indexOf('"thinkingConfig":') >= 0) return 体;
-  return 考える量を差す(体, 文, チャットの考える量);
+  return 考える量を差す(体, チャットの考える量);
 }
 
 /**
@@ -820,14 +825,16 @@ export function チャットの考えを絞る(体, 模型, 道) {
  * 依頼が自分で thinkingConfig を持っているとき、流し読み（AI チャット）、JSON として読めない体は、そのまま返す。
  * @param {ArrayBuffer|Uint8Array|undefined} 体
  * @param {string} 道
+ * @param {string|null} [骨の字] 体の骨の字（中継が先に作ったもの。無ければここで作る）
  */
-export function 考えない体(体, 道) {
+export function 考えない体(体, 道, 骨の字) {
   if (!体 || !体.byteLength) return 体;
   // 体は写真つきで 1MB 前後になる。JSON として読み直して書き直すと、Cloudflare の CPU の上限を超えて
   // 中継が落ちた（2026-09-30。3.6 が混んで 3.8→3.7→3.5 と移るたびに、鍵の数だけ繰り返した）。
-  // 文字として 1 回読み、印の文字を探して、差し込むだけにする。
+  // 2026-11-28：丸ごと字にして作り直すのも、写真が 1〜3MB だと上限に掛かった（並びを自動で直して、頼んだ 3.6 でなく
+  // 3.5 を先に試すと、写真のたびにここを通る）。写真の base64 を抜いた骨で見て、バイトのまま差し込む。
   // 写真の base64 には引用符が入らず、文の中の引用符は \" と書かれるので、"tools": のような検索は本物の項目だけに当たる
-  const 文 = new TextDecoder().decode(体);
+  const 文 = typeof 骨の字 === 'string' ? 骨の字 : 体の骨(体).字;
   if (文.indexOf('"thinkingConfig":') >= 0) return 体;
   if (/:streamGenerateContent$/.test(道)) {
     // 流し読みは AI チャットも使う。写真の読み取り（JSON 出力で、道具・system 指示なし）だけ考えない
@@ -838,25 +845,118 @@ export function 考えない体(体, 道) {
     )
       return 体;
   }
-  if (文.charAt(文.length - 1) !== '}' && 文.trimEnd().charAt(文.trimEnd().length - 1) !== '}') return 体;
-  return 考える量を差す(体, 文, 0);
+  return 考える量を差す(体, 0);
 }
 
-/** 体の generationConfig に thinkingConfig（考える量）を文字で差し込む。差せない形ならそのまま返す */
-function 考える量を差す(体, 文, 量) {
-  if (文.charAt(文.length - 1) !== '}' && 文.trimEnd().charAt(文.trimEnd().length - 1) !== '}') return 体;
+/** 体の generationConfig に thinkingConfig（考える量）をバイトのまま差し込む。差せない形ならそのまま返す */
+function 考える量を差す(体, 量) {
+  const 元 = バイトに(体);
+  // 終わりの空白を飛ばして、最後が } の体だけ（JSON の物）
+  let 末 = 元.length - 1;
+  while (末 >= 0 && (元[末] === 0x20 || 元[末] === 0x0a || 元[末] === 0x0d || 元[末] === 0x09)) 末--;
+  if (末 < 1 || 元[末] !== 0x7d) return 体;
   const 差す = `"thinkingConfig":{"thinkingBudget":${量}}`;
-  const i = 文.indexOf('"generationConfig":{');
-  let 直した;
+  // generationConfig は写真（contents）のあとに来るので、後ろから探す（写真の base64 をなめない）
+  const i = 後ろからバイトの場所(元, 字の印.generationConfig);
   if (i >= 0) {
-    const 頭 = i + '"generationConfig":{'.length;
-    直した = 文.slice(0, 頭) + 差す + (文.charAt(頭) === '}' ? '' : ',') + 文.slice(頭);
-  } else {
-    const 末 = 文.lastIndexOf('}');
-    if (末 < 1 || 文.trim() === '{}') return 体;
-    直した = 文.slice(0, 末) + ',"generationConfig":{' + 差す + '}' + 文.slice(末);
+    const 頭 = i + 字の印.generationConfig.length;
+    return つなぐ(元.subarray(0, 頭), 差す + (元[頭] === 0x7d ? '' : ','), 元.subarray(頭));
   }
-  return new TextEncoder().encode(直した);
+  // generationConfig が無い：最後の } の前に足す。空の体（{}）はそのまま
+  let 前 = 末 - 1;
+  while (前 >= 0 && (元[前] === 0x20 || 元[前] === 0x0a || 元[前] === 0x0d || 元[前] === 0x09)) 前--;
+  if (前 < 0 || 元[前] === 0x7b) return 体;
+  return つなぐ(元.subarray(0, 末), ',"generationConfig":{' + 差す + '}', 元.subarray(末));
+}
+
+/** ArrayBuffer も Uint8Array として見る（写さない） */
+function バイトに(体) {
+  return 体 instanceof Uint8Array ? 体 : new Uint8Array(体);
+}
+
+/** 探す印（引用符で始まる字）。体の中の文に出る同じ字は \" と書かれるので、本物の項目だけに当たる */
+const 字の印 = {
+  generationConfig: new TextEncoder().encode('"generationConfig":{'),
+  data: new TextEncoder().encode('"data":"'),
+};
+
+/** バイトの並びで、印（引用符で始まる）の最初の場所。無ければ -1。引用符だけを飛び石に探す（写真の base64 は一跳びで越える） */
+function バイトの場所(元, 印, から = 0) {
+  let i = から;
+  for (;;) {
+    i = 元.indexOf(印[0], i);
+    if (i < 0 || i + 印.length > 元.length) return -1;
+    let 合う = true;
+    for (let k = 1; k < 印.length; k++)
+      if (元[i + k] !== 印[k]) {
+        合う = false;
+        break;
+      }
+    if (合う) return i;
+    i++;
+  }
+}
+
+/** バイトの並びで、印（引用符で始まる）の最後の場所。無ければ -1 */
+function 後ろからバイトの場所(元, 印) {
+  let i = 元.length - 印.length;
+  while (i >= 0) {
+    i = 元.lastIndexOf(印[0], i);
+    if (i < 0) return -1;
+    let 合う = true;
+    for (let k = 1; k < 印.length; k++)
+      if (元[i + k] !== 印[k]) {
+        合う = false;
+        break;
+      }
+    if (合う) return i;
+    i--;
+  }
+  return -1;
+}
+
+/** 前・差す字・後ろを 1 つのバイトの並びにする（写真の部分は写すだけで字にしない） */
+function つなぐ(前, 字, 後ろ) {
+  const 中 = new TextEncoder().encode(字);
+  const 出 = new Uint8Array(前.length + 中.length + 後ろ.length);
+  出.set(前, 0);
+  出.set(中, 前.length);
+  出.set(後ろ, 前.length + 中.length);
+  return 出;
+}
+
+/** 骨に残す写真の長さ。これより短い "data" はそのまま字にする（作り直しても写真が消えないよう、抜いたかを返す） */
+const 骨に残す長さ = 1024;
+
+/**
+ * 体の骨：写真などの base64（"data":"…" の中身）を抜いた字。中継が体を見る（道具・指示文・考える量の有無）ためだけに使う。
+ * 丸ごと字にすると、1〜3MB の写真で無料枠の CPU 10ms を食う（2026-11-28 に検証用の中継で 503）。
+ * 抜いた場所は "data":"" になる。抜いたときは 抜いた が true（その字から体を作り直してはいけない）
+ * @param {ArrayBuffer|Uint8Array} 体
+ * @returns {{字: string, 抜いた: boolean}}
+ */
+export function 体の骨(体) {
+  const 元 = バイトに(体);
+  const 字に = new TextDecoder();
+  const 切れ = [];
+  let 始め = 0;
+  let 抜いた = false;
+  let i = 0;
+  for (;;) {
+    i = バイトの場所(元, 字の印.data, i);
+    if (i < 0) break;
+    const 中の始め = i + 字の印.data.length;
+    const 終わり = 元.indexOf(0x22, 中の始め);
+    if (終わり < 0) break;
+    if (終わり - 中の始め > 骨に残す長さ) {
+      切れ.push(字に.decode(元.subarray(始め, 中の始め)));
+      始め = 終わり;
+      抜いた = true;
+    }
+    i = 終わり + 1;
+  }
+  切れ.push(字に.decode(元.subarray(始め)));
+  return { 字: 切れ.join(''), 抜いた };
 }
 
 /**
