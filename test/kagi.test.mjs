@@ -12,7 +12,12 @@ const b64 = (v) => Buffer.from(typeof v === 'string' ? v : JSON.stringify(v)).to
 
 async function 鍵の組(kid) {
   const 組 = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
     true,
     ['sign', 'verify']
   );
@@ -28,7 +33,13 @@ async function 鍵の組(kid) {
 test('鍵の置き場：控えに無い番号での取り直しは 1 分に 1 回まで。取れなければ確かめない', async () => {
   const 甲 = await 鍵の組('a');
   let 取った = 0;
-  const 送る = async () => (取った++, new Response(JSON.stringify({ keys: [甲.jwk] }), { status: 200, headers: { 'Cache-Control': 'max-age=3600' } }));
+  const 送る = async () => (
+    取った++,
+    new Response(JSON.stringify({ keys: [甲.jwk] }), {
+      status: 200,
+      headers: { 'Cache-Control': 'max-age=3600' },
+    })
+  );
   const 鍵を選ぶ = 鍵の置き場を作る('https://x/jwks', { 送る });
   await 鍵を選ぶ('a', 1000);
   assert.strictEqual(取った, 1);
@@ -45,7 +56,9 @@ test('鍵の置き場：控えに無い番号での取り直しは 1 分に 1 �
 test('署名を確かめる：正しい署名・期限切れ・別の鍵の署名', async () => {
   const 甲 = await 鍵の組('a');
   const 乙 = await 鍵の組('a');
-  const 鍵を選ぶ = 鍵の置き場を作る('https://x', { 送る: async () => new Response(JSON.stringify({ keys: [甲.jwk] }), { status: 200 }) });
+  const 鍵を選ぶ = 鍵の置き場を作る('https://x', {
+    送る: async () => new Response(JSON.stringify({ keys: [甲.jwk] }), { status: 200 }),
+  });
   const 今 = Date.now();
   const 秒 = Math.floor(今 / 1000);
   const 良い = await 甲.署名する({ sub: 'u', exp: 秒 + 60, iat: 秒 });
@@ -57,12 +70,21 @@ test('署名を確かめる：正しい署名・期限切れ・別の鍵の署�
 
 test('App Check の印：発行元・宛先（その企画）・署名を見る。付いていなければ none', async () => {
   const 甲 = await 鍵の組('ac');
-  const 鍵を選ぶ = 鍵の置き場を作る('https://x', { 送る: async () => new Response(JSON.stringify({ keys: [甲.jwk] }), { status: 200 }) });
+  const 鍵を選ぶ = 鍵の置き場を作る('https://x', {
+    送る: async () => new Response(JSON.stringify({ keys: [甲.jwk] }), { status: 200 }),
+  });
   const 秒 = Math.floor(Date.now() / 1000);
   const 印 = (中身) => 甲.署名する({ exp: 秒 + 600, iat: 秒, sub: '1:2:web:3', ...中身 });
-  const 本物 = await 印({ iss: 'https://firebaseappcheck.googleapis.com/123456', aud: ['projects/123456', 'projects/kyudoscoremanager'] });
+  const 本物 = await 印({
+    iss: 'https://firebaseappcheck.googleapis.com/123456',
+    aud: ['projects/123456', 'projects/kyudoscoremanager'],
+  });
   assert.strictEqual(await 印を確かめる(本物, 'kyudoscoremanager', { 鍵を選ぶ }), 'ok');
-  assert.strictEqual(await 印を確かめる(本物, 'kyudoscoremanager-stg', { 鍵を選ぶ }), 'bad', 'ほかの企画の印を通した');
+  assert.strictEqual(
+    await 印を確かめる(本物, 'kyudoscoremanager-stg', { 鍵を選ぶ }),
+    'bad',
+    'ほかの企画の印を通した'
+  );
   const 発行元違い = await 印({ iss: 'https://evil.example/1', aud: ['projects/kyudoscoremanager'] });
   assert.strictEqual(await 印を確かめる(発行元違い, 'kyudoscoremanager', { 鍵を選ぶ }), 'bad');
   assert.strictEqual(await 印を確かめる(null, 'kyudoscoremanager', { 鍵を選ぶ }), 'none');
@@ -82,7 +104,9 @@ test('流し読み：中身の無い 200 は、最後の模型でなければ次
     体: new TextEncoder().encode('{}'),
     fetch: async (url) => {
       頼んだ.push(url);
-      return url.includes('3.8') ? new Response(new Uint8Array(0), { status: 200 }) : new Response('data: {"a":1}\n\n', { status: 200 });
+      return url.includes('3.8')
+        ? new Response(new Uint8Array(0), { status: 200 })
+        : new Response('data: {"a":1}\n\n', { status: 200 });
     },
     待つ: async () => {},
   });
@@ -109,7 +133,10 @@ test('鍵の置き場：知らない番号で取り直すときは Cloudflare �
   const 乙 = await 鍵の組('b');
   const 頼み = [];
   let 今の鍵 = [甲.jwk];
-  const 送る = async (_, 注文) => (頼み.push(注文), new Response(JSON.stringify({ keys: 今の鍵 }), { status: 200 }));
+  const 送る = async (_, 注文) => (
+    頼み.push(注文),
+    new Response(JSON.stringify({ keys: 今の鍵 }), { status: 200 })
+  );
   const 鍵を選ぶ = 鍵の置き場を作る('https://x/jwks', { 送る });
   await 鍵を選ぶ('a', 1000);
   今の鍵 = [甲.jwk, 乙.jwk];
@@ -126,7 +153,10 @@ test('鍵の置き場：期限が切れて取り直せないときは前の鍵�
     取った++,
     壊れている
       ? new Response('x', { status: 500 })
-      : new Response(JSON.stringify({ keys: [甲.jwk] }), { status: 200, headers: { 'Cache-Control': 'max-age=60' } })
+      : new Response(JSON.stringify({ keys: [甲.jwk] }), {
+          status: 200,
+          headers: { 'Cache-Control': 'max-age=60' },
+        })
   );
   const 鍵を選ぶ = 鍵の置き場を作る('https://x/jwks', { 送る });
   await 鍵を選ぶ('a', 0);

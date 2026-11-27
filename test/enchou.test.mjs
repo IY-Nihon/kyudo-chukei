@@ -18,7 +18,12 @@ const 見の枝 = 'v'.repeat(64);
 
 async function 偽のサービスアカウント() {
   const 組 = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
     true,
     ['sign', 'verify']
   );
@@ -37,7 +42,11 @@ const 欄に = (o) =>
   Object.fromEntries(
     Object.entries(o).map(([k, v]) => [
       k,
-      v === null ? { nullValue: null } : typeof v === 'boolean' ? { booleanValue: v } : { stringValue: String(v) },
+      v === null
+        ? { nullValue: null }
+        : typeof v === 'boolean'
+          ? { booleanValue: v }
+          : { stringValue: String(v) },
     ])
   );
 
@@ -65,7 +74,9 @@ function 偽の雲({ 文書 = {}, ライブ = {} } = {}) {
       if (!/datastore/.test(範囲.get(証) || '')) return new Response('{}', { status: 403 });
       const 文書の道 = 道.split('/documents/')[1];
       const 中 = 文書[decodeURIComponent(文書の道)];
-      return 中 ? new Response(JSON.stringify({ fields: 欄に(中) }), { status: 200 }) : new Response('{}', { status: 404 });
+      return 中
+        ? new Response(JSON.stringify({ fields: 欄に(中) }), { status: 200 })
+        : new Response('{}', { status: 404 });
     }
     if (道.startsWith(`https://${企画}-default-rtdb.firebaseio.com/`)) {
       if (!/firebase\.database/.test(範囲.get(証) || '')) return new Response('{}', { status: 401 });
@@ -75,7 +86,7 @@ function 偽の雲({ 文書 = {}, ライブ = {} } = {}) {
         書いたもの.push(JSON.parse(頼み.body));
         return new Response('{}', { status: 200 });
       }
-      const 値 = ライブの道.split('/').reduce((o, k) => (o == null ? null : o[k] ?? null), ライブ);
+      const 値 = ライブの道.split('/').reduce((o, k) => (o == null ? null : (o[k] ?? null)), ライブ);
       // shallow は子の名前だけ（値は true）
       const 返す =
         問い.includes('shallow=true') && 値 && typeof 値 === 'object'
@@ -89,8 +100,18 @@ function 偽の雲({ 文書 = {}, ライブ = {} } = {}) {
 }
 
 const 頼む = (体) =>
-  new Request('https://x/enchou', { method: 'POST', body: JSON.stringify(体), headers: { 'Content-Type': 'application/json' } });
-const 団体の人 = { aud: 企画, sub: 'owner-uid', email: 'Club@Example.com', email_verified: true, firebase: { sign_in_provider: 'password' } };
+  new Request('https://x/enchou', {
+    method: 'POST',
+    body: JSON.stringify(体),
+    headers: { 'Content-Type': 'application/json' },
+  });
+const 団体の人 = {
+  aud: 企画,
+  sub: 'owner-uid',
+  email: 'Club@Example.com',
+  email_verified: true,
+  firebase: { sign_in_provider: 'password' },
+};
 const 部員 = { aud: 企画, sub: 'anon-1', firebase: { sign_in_provider: 'anonymous' } };
 const ふつうの雲 = (足す = {}) => ({
   文書: {
@@ -102,7 +123,9 @@ const ふつうの雲 = (足す = {}) => ({
   },
   ライブ: {
     live_sessions: {
-      [団の枝]: { 練習: { state: { 共有の枝: 共の枝, 閲覧の枝: 見の枝, status: 'active', 期限: 今 + 時間 } } },
+      [団の枝]: {
+        練習: { state: { 共有の枝: 共の枝, 閲覧の枝: 見の枝, status: 'active', 期限: 今 + 時間 } },
+      },
       [共の枝]: { 練習: { state: { status: 'active', 期限: 今 + 時間, archers: [{ name: '部員1' }] } } },
     },
     live_limits: { [共の枝]: 今 + 時間, [見の枝]: 今 + 時間 },
@@ -114,7 +137,11 @@ const ふつうの雲 = (足す = {}) => ({
 test.beforeEach(() => 証の控えを忘れる());
 
 test('頼みの形：団体・名前・持ち（12 時間・24 時間・7 日だけ）', () => {
-  assert.deepEqual(頼みを読む({ 団体, 名前: '練習', 持ち: 24 * 時間 }), { 団体, 名前: '練習', 持ち: 24 * 時間 });
+  assert.deepEqual(頼みを読む({ 団体, 名前: '練習', 持ち: 24 * 時間 }), {
+    団体,
+    名前: '練習',
+    持ち: 24 * 時間,
+  });
   assert.equal(頼みを読む({ 団体, 名前: '練習', 持ち: 0 }), null, '期限なしにはできない');
   assert.equal(頼みを読む({ 団体, 名前: '練習', 持ち: 30 * 24 * 時間 }), null);
   assert.equal(頼みを読む({ 団体, 名前: '5/8', 持ち: 12 * 時間 }), null, '道を壊す字');
@@ -124,7 +151,10 @@ test('頼みの形：団体・名前・持ち（12 時間・24 時間・7 日だ
 
 test('団体アカウントは延ばせる：配った枝と閲覧の枝の期限・盤面・写し・道しるべの期限を書く', async () => {
   const 雲 = 偽の雲(ふつうの雲());
-  const 結果 = await 期限を延ばす(頼む({ 団体, 名前: '練習', 持ち: 24 * 時間 }), env, 団体の人, { 送る: 雲.送る, 今 });
+  const 結果 = await 期限を延ばす(頼む({ 団体, 名前: '練習', 持ち: 24 * 時間 }), env, 団体の人, {
+    送る: 雲.送る,
+    今,
+  });
   assert.deepEqual(結果, { 状態: 200, 中身: { 結果: '延ばした', 期限: 今 + 24 * 時間 } });
   assert.equal(雲.書いたもの.length, 1, 'まとめて 1 回で書く');
   assert.deepEqual(雲.書いたもの[0], {
@@ -145,12 +175,21 @@ test('在籍している部員は延ばせる。退部・卒業・よその団�
     assert.equal(結果.状態, 403, enrollment + 'の人が延ばせた');
     assert.equal(雲.書いたもの.length, 0);
   }
-  const よそ = 偽の雲(ふつうの雲({ 文書: { 'member_claims/anon-1': { groupId: '999999', memberId: 'm1' } } }));
+  const よそ = 偽の雲(
+    ふつうの雲({ 文書: { 'member_claims/anon-1': { groupId: '999999', memberId: 'm1' } } })
+  );
   assert.equal((await 期限を延ばす(頼む(体), env, 部員, { 送る: よそ.送る, 今 })).状態, 403);
   const 来客 = { aud: 企画, sub: 'anon-x', firebase: { sign_in_provider: 'anonymous' } };
-  assert.equal((await 期限を延ばす(頼む(体), env, 来客, { 送る: 偽の雲(ふつうの雲()).送る, 今 })).状態, 403, 'リンクで来た人');
+  assert.equal(
+    (await 期限を延ばす(頼む(体), env, 来客, { 送る: 偽の雲(ふつうの雲()).送る, 今 })).状態,
+    403,
+    'リンクで来た人'
+  );
   const 確かめていない = { ...団体の人, email_verified: false };
-  assert.equal((await 期限を延ばす(頼む(体), env, 確かめていない, { 送る: 偽の雲(ふつうの雲()).送る, 今 })).状態, 403);
+  assert.equal(
+    (await 期限を延ばす(頼む(体), env, 確かめていない, { 送る: 偽の雲(ふつうの雲()).送る, 今 })).状態,
+    403
+  );
 });
 
 test('配っていない・期限が切れた・今より短いは断る。写しが無ければ写しには書かない', async () => {
@@ -167,7 +206,11 @@ test('配っていない・期限が切れた・今より短いは断る。写�
   assert.equal(長い.書いたもの.length, 0);
   const 写しなし = 偽の雲(ふつうの雲({ ライブ: { live_view: {} } }));
   assert.equal((await 期限を延ばす(頼む(体), env, 団体の人, { 送る: 写しなし.送る, 今 })).状態, 200);
-  assert.equal(`live_view/${見の枝}/練習/state/期限` in 写しなし.書いたもの[0], false, '無い写しに期限を書いた');
+  assert.equal(
+    `live_view/${見の枝}/練習/state/期限` in 写しなし.書いたもの[0],
+    false,
+    '無い写しに期限を書いた'
+  );
 });
 
 test('鍵が無ければ 404（古い中継と同じ）・Realtime Database に書けなければ 503', async () => {
@@ -175,13 +218,18 @@ test('鍵が無ければ 404（古い中継と同じ）・Realtime Database に�
   const 雲 = 偽の雲(ふつうの雲());
   const 書けない = async (宛先, 頼み = {}) =>
     頼み.method === 'PATCH' ? new Response('{}', { status: 401 }) : 雲.送る(宛先, 頼み);
-  const 結果 = await 期限を延ばす(頼む({ 団体, 名前: '練習', 持ち: 12 * 時間 }), env, 団体の人, { 送る: 書けない, 今 });
+  const 結果 = await 期限を延ばす(頼む({ 団体, 名前: '練習', 持ち: 12 * 時間 }), env, 団体の人, {
+    送る: 書けない,
+    今,
+  });
   assert.equal(結果.状態, 503);
 });
 
 test('共有の盤面がもう無い・保存して終わった（片付けの途中）なら書かない（11/27 の点検）', async () => {
   const 体 = { 団体, 名前: '練習', 持ち: 12 * 時間 };
-  const 道しるべ = { 練習: { state: { 共有の枝: 共の枝, 閲覧の枝: 見の枝, status: 'active', 期限: 今 + 時間 } } };
+  const 道しるべ = {
+    練習: { state: { 共有の枝: 共の枝, 閲覧の枝: 見の枝, status: 'active', 期限: 今 + 時間 } },
+  };
   for (const [訳, 共の盤面] of [
     ['盤面が無い', {}],
     ['保存して終わった', { 練習: { state: { status: 'finished' } } }],

@@ -19,7 +19,12 @@ import { 証の控えを忘れる } from '../src/kojin.mjs';
 
 async function 偽のサービスアカウント(企画 = 'kyudoscoremanager-stg') {
   const 組 = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
     true,
     ['sign', 'verify']
   );
@@ -43,7 +48,10 @@ function 偽の雲() {
       return new Response(JSON.stringify({ access_token: 'sa-token', expires_in: 3600 }), { status: 200 });
     const 道 = decodeURIComponent(url.replace(/^.*\/documents/, ''));
     // 本番は Firestore で App Check を強いている。その人の証の読みに端末の印が無ければ断る（サービスアカウントは通す）
-    if (頼み.headers.Authorization !== 'Bearer sa-token' && 頼み.headers['X-Firebase-AppCheck'] !== 'appcheck-token')
+    if (
+      頼み.headers.Authorization !== 'Bearer sa-token' &&
+      頼み.headers['X-Firebase-AppCheck'] !== 'appcheck-token'
+    )
       return new Response('{}', { status: 403 });
     if (道.includes('/private/')) {
       return new Response('{}', { status: 頼み.headers.Authorization === 'Bearer owner-token' ? 404 : 403 });
@@ -51,7 +59,12 @@ function 偽の雲() {
     if (頼み.headers.Authorization === 'Bearer member-token' && !頼み.method) {
       if (道 === '/member_claims/u1')
         return 部員.証
-          ? 返す({ fields: { groupId: { stringValue: 部員.証.groupId }, memberId: { stringValue: 部員.証.memberId } } })
+          ? 返す({
+              fields: {
+                groupId: { stringValue: 部員.証.groupId },
+                memberId: { stringValue: 部員.証.memberId },
+              },
+            })
           : 返す({}, 404);
       const 名簿 = 道.match(/^\/groups\/G1\/members\/(.+)$/);
       if (名簿) return 返す({}, 部員.名簿.has(名簿[1]) ? 200 : 403);
@@ -127,7 +140,10 @@ test('持ち主でない証は断る（private を読めない）', async () => 
 test('作る：入り直した直後だけ作れる。作ったら印（12 時間）を書く。2 度目は作れない', async () => {
   const { 呼ぶ, 雲, 今 } = await 用意();
   assert.equal((await 呼ぶ({ 操作: '様子' })).中身.合言葉あり, false);
-  const 古い = await 呼ぶ({ 操作: '作る', 新しい: 'abcdef12' }, { 本人: { auth_time: Math.floor(今 / 1000) - 3600 } });
+  const 古い = await 呼ぶ(
+    { 操作: '作る', 新しい: 'abcdef12' },
+    { 本人: { auth_time: Math.floor(今 / 1000) - 3600 } }
+  );
   assert.equal(古い.中身.結果, '入り直しが要る');
   const 作った = await 呼ぶ({ 操作: '作る', 新しい: 'abcdef12' });
   assert.equal(作った.中身.結果, '作った');
@@ -162,8 +178,14 @@ test('変える：今の合言葉が合うか、入り直した直後なら変�
   const { 呼ぶ, 雲, 今 } = await 用意();
   await 呼ぶ({ 操作: '作る', 新しい: 'abcdef12' });
   const 古い入り = { 本人: { auth_time: Math.floor(今 / 1000) - 3600 } };
-  assert.equal((await 呼ぶ({ 操作: '変える', 今の: 'zzzzzz', 新しい: 'newpass1' }, 古い入り)).中身.結果, '違う');
-  assert.equal((await 呼ぶ({ 操作: '変える', 今の: 'abcdef12', 新しい: 'newpass1' }, 古い入り)).中身.結果, '変えた');
+  assert.equal(
+    (await 呼ぶ({ 操作: '変える', 今の: 'zzzzzz', 新しい: 'newpass1' }, 古い入り)).中身.結果,
+    '違う'
+  );
+  assert.equal(
+    (await 呼ぶ({ 操作: '変える', 今の: 'abcdef12', 新しい: 'newpass1' }, 古い入り)).中身.結果,
+    '変えた'
+  );
   // 忘れたとき：入り直した直後なら今の合言葉なしで変えられる
   assert.equal((await 呼ぶ({ 操作: '変える', 新しい: 'newpass2' })).中身.結果, '変えた');
   assert.equal((await 呼ぶ({ 操作: '入る', 合言葉: 'newpass1' })).中身.結果, '違う');
@@ -179,12 +201,23 @@ const 役の欄 = (役, 割り当て) => ({
       fields: Object.fromEntries(
         Object.entries(役).map(([id, 部品]) => [
           id,
-          { mapValue: { fields: { 名: { stringValue: id }, 部品: { arrayValue: { values: 部品.map((字) => ({ stringValue: 字 })) } } } } },
+          {
+            mapValue: {
+              fields: {
+                名: { stringValue: id },
+                部品: { arrayValue: { values: 部品.map((字) => ({ stringValue: 字 })) } },
+              },
+            },
+          },
         ])
       ),
     },
   },
-  割り当て: { mapValue: { fields: Object.fromEntries(Object.entries(割り当て).map(([m, r]) => [m, { stringValue: r }])) } },
+  割り当て: {
+    mapValue: {
+      fields: Object.fromEntries(Object.entries(割り当て).map(([m, r]) => [m, { stringValue: r }])),
+    },
+  },
 });
 
 test('運営の役の人（11/19）：様子・入る・出るは使える。作る・変えるは団体の持ち主だけ', async () => {

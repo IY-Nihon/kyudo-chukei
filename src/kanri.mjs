@@ -88,10 +88,18 @@ const b64をバイトに = (字) => Uint8Array.from(atob(字), (c) => c.charCode
 
 /** 合言葉から、塩つきのハッシュを作る */
 export async function 合言葉をハッシュに(合言葉, 塩 = crypto.getRandomValues(new Uint8Array(16)), 回 = 回数) {
-  const 元 = await crypto.subtle.importKey('raw', new TextEncoder().encode(String(合言葉).normalize('NFC')), 'PBKDF2', false, [
-    'deriveBits',
-  ]);
-  const 出 = await crypto.subtle.deriveBits({ name: 'PBKDF2', hash: 'SHA-256', salt: 塩, iterations: 回 }, 元, 256);
+  const 元 = await crypto.subtle.importKey(
+    'raw',
+    new TextEncoder().encode(String(合言葉).normalize('NFC')),
+    'PBKDF2',
+    false,
+    ['deriveBits']
+  );
+  const 出 = await crypto.subtle.deriveBits(
+    { name: 'PBKDF2', hash: 'SHA-256', salt: 塩, iterations: 回 },
+    元,
+    256
+  );
   return { 塩: b64(塩), ハッシュ: b64(出), 回 };
 }
 
@@ -102,7 +110,8 @@ export async function 合言葉が合うか(合言葉, 控え) {
   const 甲 = 作った.ハッシュ;
   const 乙 = 控え.ハッシュ;
   let 違い = 甲.length ^ 乙.length;
-  for (let i = 0; i < Math.max(甲.length, 乙.length); i++) 違い |= (甲.charCodeAt(i) || 0) ^ (乙.charCodeAt(i) || 0);
+  for (let i = 0; i < Math.max(甲.length, 乙.length); i++)
+    違い |= (甲.charCodeAt(i) || 0) ^ (乙.charCodeAt(i) || 0);
   return 違い === 0;
 }
 
@@ -122,7 +131,9 @@ export function D1の置き場(db) {
     },
     async 書く(鍵, 値) {
       await db
-        .prepare('INSERT INTO kanri (key, value, at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = ?2, at = ?3')
+        .prepare(
+          'INSERT INTO kanri (key, value, at) VALUES (?1, ?2, ?3) ON CONFLICT(key) DO UPDATE SET value = ?2, at = ?3'
+        )
         .bind(鍵, JSON.stringify(値), Date.now())
         .run();
     },
@@ -157,7 +168,8 @@ export async function 管理者を確かめる(request, env, 本人, 証, 道具
   const 鍵束 = サービスアカウントを選ぶ(env.FIREBASE_SA_KEYS, 本人.aud);
   if (!鍵束) return { 状態: 404, 中身: { error: 'この道は中継しません' } };
   if (request.method !== 'POST') return { 状態: 405, 中身: { error: 'POST で呼んでください' } };
-  if (Number(request.headers.get('Content-Length') || 0) > 2048) return { 状態: 413, 中身: { error: '大きすぎます' } };
+  if (Number(request.headers.get('Content-Length') || 0) > 2048)
+    return { 状態: 413, 中身: { error: '大きすぎます' } };
   let 体;
   try {
     体 = JSON.parse((await request.text()).slice(0, 2048));
@@ -187,7 +199,7 @@ export async function 管理者を確かめる(request, env, 本人, 証, 道具
     if (r.status >= 500 || r.status === 429) 届かない();
     return r;
   };
-  let 持ち主 = false;
+  let 持ち主;
   try {
     const r = await 読む(`group_accounts/${団体}/private/_kanri`);
     持ち主 = r.ok || r.status === 404;
@@ -232,7 +244,9 @@ export async function 管理者を確かめる(request, env, 本人, 証, 道具
           uid: { stringValue: 本人.sub },
           expiresAt: { timestampValue: new Date(期限).toISOString() },
           // この端末のログインの時刻（決まりが今の証と照らし合わせる。無い・数でない証は 0 で、決まりに合わない）
-          authTime: { integerValue: String(Number.isFinite(本人.auth_time) ? Math.floor(本人.auth_time) : 0) },
+          authTime: {
+            integerValue: String(Number.isFinite(本人.auth_time) ? Math.floor(本人.auth_time) : 0),
+          },
         },
       }),
     });
@@ -260,7 +274,8 @@ export async function 管理者を確かめる(request, env, 本人, 証, 道具
       if (止まっている) return '止まっている';
       const 数えた = 置き場.一つ足す
         ? await 置き場.一つ足す(まちがいの鍵)
-        : (await 置き場.書く(まちがいの鍵, { 数: まちがい.数 + 1, 止める: 0 }), { 数: まちがい.数 + 1, 止める: 0 });
+        : (await 置き場.書く(まちがいの鍵, { 数: まちがい.数 + 1, 止める: 0 }),
+          { 数: まちがい.数 + 1, 止める: 0 });
       数えた数 = Number(数えた.数) || 0;
       if (Number(数えた.止める) > 今 || 数えた数 > まちがいの上限) return '止まっている';
       if (await 合言葉が合うか(字, 控え)) {
@@ -275,7 +290,10 @@ export async function 管理者を確かめる(request, env, 本人, 証, 道具
     };
     const 止めた答え = (止める) => ({
       状態: 429,
-      中身: { error: `まちがいが続いたので、${Math.ceil((止める - 今) / 60000)} 分ほど待ってください`, 止める },
+      中身: {
+        error: `まちがいが続いたので、${Math.ceil((止める - 今) / 60000)} 分ほど待ってください`,
+        止める,
+      },
     });
 
     if (操作 === '様子') return { 状態: 200, 中身: { 結果: '様子', 合言葉あり: !!控え } };

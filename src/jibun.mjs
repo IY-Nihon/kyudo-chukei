@@ -71,7 +71,12 @@ const IDの形 = /^[0-9A-Za-z_-]{1,64}$/;
  * 記録がある）ので、字の種類では絞らない。/ を含まない・. と .. でない・長すぎない、だけを見る（11/20 の見直し）
  */
 const 文書のidか = (id) =>
-  typeof id === 'string' && id.length > 0 && id.length <= 400 && !id.includes('/') && id !== '.' && id !== '..';
+  typeof id === 'string' &&
+  id.length > 0 &&
+  id.length <= 400 &&
+  !id.includes('/') &&
+  id !== '.' &&
+  id !== '..';
 const 四桁の形 = /^[0-9]{4}$/;
 
 // ── Firestore の REST の値を、ふつうの値に直す（日時はミリ秒） ──
@@ -105,7 +110,10 @@ const 日時の字 = (文書) => {
 };
 // Firestore の REST は、名前の中の id をそのまま返す（% で表さない。まとめて取るときも、そのままの名前でしか見つからない）。
 // だから %を戻さない（% を含む id を壊し、% の後ろが数字でないと落ちる。11/20 の見直し）
-const 名のid = (名) => String(名 || '').split('/').pop();
+const 名のid = (名) =>
+  String(名 || '')
+    .split('/')
+    .pop();
 const 文書のid = (文書) => 名のid(文書 && 文書.name);
 
 // ── その人の行だけにする（アプリの src/syncRules.js の 自分の射手か・src/statsRules.js・src/chatScope.js と同じ決まり） ──
@@ -115,7 +123,8 @@ export function 自分の射手か(射手, 自分id, 自分名) {
   if (!射手) return false;
   if (自分id && 射手.memberId === 自分id) return true;
   if ((!自分id || !射手.memberId) && 自分名 && 射手.name === 自分名) return true;
-  const 交代のid = 射手.substitutionIds && typeof 射手.substitutionIds === 'object' ? 射手.substitutionIds : {};
+  const 交代のid =
+    射手.substitutionIds && typeof 射手.substitutionIds === 'object' ? 射手.substitutionIds : {};
   if (自分id && Object.values(交代のid).includes(自分id)) return true;
   if (自分名 && 射手.substitutions && typeof 射手.substitutions === 'object') {
     for (const [位置, 相手] of Object.entries(射手.substitutions)) {
@@ -175,8 +184,10 @@ function 矢所の並び(値) {
 /** 自分の列を、自分の射と自分の名前だけにする（chatScope の 射手を絞る と同じ） */
 function 射手を絞る(射手, 自分id, 自分名) {
   const 自分の名前か = (名前) => !!名前 && !!自分名 && 名前 === 自分名;
-  const 自分の列 = (自分id && 射手.memberId === 自分id) || ((!自分id || !射手.memberId) && 自分の名前か(射手.name));
-  const 元の交代id = 射手.substitutionIds && typeof 射手.substitutionIds === 'object' ? 射手.substitutionIds : {};
+  const 自分の列 =
+    (自分id && 射手.memberId === 自分id) || ((!自分id || !射手.memberId) && 自分の名前か(射手.name));
+  const 元の交代id =
+    射手.substitutionIds && typeof 射手.substitutionIds === 'object' ? 射手.substitutionIds : {};
   const 交代 = {};
   for (const [位置, 相手] of Object.entries(射手.substitutions || {})) {
     const 相手id = 元の交代id[位置];
@@ -262,7 +273,8 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
   if (request.method !== 'POST') return { 状態: 405, 中身: { error: 'POST で呼んでください' } };
   if (!(本人.firebase && 本人.firebase.sign_in_provider === 'anonymous'))
     return { 状態: 403, 中身: { error: '個人でログインした人だけが使えます' } };
-  if (Number(request.headers.get('Content-Length') || 0) > 8192) return { 状態: 413, 中身: { error: '大きすぎます' } };
+  if (Number(request.headers.get('Content-Length') || 0) > 8192)
+    return { 状態: 413, 中身: { error: '大きすぎます' } };
   let 体;
   try {
     体 = JSON.parse((await request.text()).slice(0, 8192));
@@ -271,7 +283,8 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
   }
   const 団体 = String((体 && 体.団体) || '');
   const 形 = String((体 && 体.形) || '');
-  if (!IDの形.test(団体) || !['差分', '全部', 'id'].includes(形)) return { 状態: 400, 中身: { error: '形が違います' } };
+  if (!IDの形.test(団体) || !['差分', '全部', 'id'].includes(形))
+    return { 状態: 400, 中身: { error: '形が違います' } };
   const 境目 = (体 && 体.境目) || {};
   const 記録の境目 = Math.max(0, Number(境目.記録) || 0);
   const ごみ箱の境目 = Math.max(0, Number(境目.ごみ箱) || 0);
@@ -381,7 +394,12 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
           ],
           limit: 件,
           ...(続き
-            ? { startAt: { values: [{ timestampValue: 続き.時 }, { referenceValue: 続き.名 }], before: false } }
+            ? {
+                startAt: {
+                  values: [{ timestampValue: 続き.時 }, { referenceValue: 続き.名 }],
+                  before: false,
+                },
+              }
             : {}),
         },
         true
@@ -460,10 +478,7 @@ export async function 自分の記録を返す(request, env, 本人, 道具 = {}
         続き: 次,
         境目: { 記録: 記録の最新, ごみ箱: ごみ箱の最新 },
         // 次に頼むとよい数。このページの 1 件あたりの大きさで、目安の大きさに収まる数（1〜25）
-        次の件: Math.min(
-          ページ,
-          Math.max(1, Math.floor((件 * 目安の大きさ) / Math.max(1, 答えの大きさ)))
-        ),
+        次の件: Math.min(ページ, Math.max(1, Math.floor((件 * 目安の大きさ) / Math.max(1, 答えの大きさ)))),
       },
     };
   } catch {

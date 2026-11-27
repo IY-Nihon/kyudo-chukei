@@ -46,12 +46,16 @@ test('全体の上限（DAILY_TOTAL）は、人・団体・企画を替えても
   assert.equal((await 一日の枠に収まるか(env, { 企画: 'p', 人: 'a', 団体: 'g' }, 昼)).収まる, true);
   assert.equal((await 一日の枠に収まるか(env, { 企画: 'p', 人: 'b', 団体: 'h' }, 昼)).収まる, true);
   assert.equal((await 一日の枠に収まるか(env, { 企画: 'q', 人: 'c' }, 昼)).収まる, true);
-  assert.deepEqual(await 一日の枠に収まるか(env, { 企画: 'p', 人: 'd', 団体: 'i' }, 昼), { 収まる: false, 越えた: '全体' });
+  assert.deepEqual(await 一日の枠に収まるか(env, { 企画: 'p', 人: 'd', 団体: 'i' }, 昼), {
+    収まる: false,
+    越えた: '全体',
+  });
   // 次の枠の日は数え直す
   assert.equal((await 一日の枠に収まるか(env, { 企画: 'p', 人: 'd' }, 昼 + 86400000)).収まる, true);
   // 置かなければ数えない（本番の中継）
   const 本番 = { KAIZEN_DB: 偽のDB(), DAILY_PERSON: '100', DAILY_GROUP: '100' };
-  for (let i = 0; i < 5; i++) assert.equal((await 一日の枠に収まるか(本番, { 企画: 'p', 人: 'u' + i }, 昼)).収まる, true);
+  for (let i = 0; i < 5; i++)
+    assert.equal((await 一日の枠に収まるか(本番, { 企画: 'p', 人: 'u' + i }, 昼)).収まる, true);
   assert.equal([...本番.KAIZEN_DB.表.keys()].length, 5, '全体を数えた');
 });
 
@@ -95,7 +99,9 @@ test('鍵はハッシュで、人も団体も読めない', async () => {
 
 test('D1 が無い・転んだときは通す（中継を止めない）', async () => {
   assert.equal((await 一日の枠に収まるか({}, { 企画: 'p', 人: 'a' }, 昼)).収まる, true);
-  const 転ぶ = { KAIZEN_DB: { prepare: () => ({ bind: () => ({}) }), batch: async () => Promise.reject(new Error('x')) } };
+  const 転ぶ = {
+    KAIZEN_DB: { prepare: () => ({ bind: () => ({}) }), batch: async () => Promise.reject(new Error('x')) },
+  };
   const 元 = console.warn;
   console.warn = () => {};
   try {
@@ -107,7 +113,11 @@ test('D1 が無い・転んだときは通す（中継を止めない）', async
 
 test('上限 0 は数えない。団体が付いていなければ人だけ数える', async () => {
   const DB = 偽のDB();
-  await 一日の枠に収まるか({ KAIZEN_DB: DB, DAILY_PERSON: '0', DAILY_GROUP: '0' }, { 企画: 'p', 人: 'a', 団体: 'g' }, 昼);
+  await 一日の枠に収まるか(
+    { KAIZEN_DB: DB, DAILY_PERSON: '0', DAILY_GROUP: '0' },
+    { 企画: 'p', 人: 'a', 団体: 'g' },
+    昼
+  );
   assert.equal(DB.表.size, 0);
   await 一日の枠に収まるか({ KAIZEN_DB: DB }, { 企画: 'p', 人: 'a', 団体: '' }, 昼);
   assert.equal(DB.表.size, 1);

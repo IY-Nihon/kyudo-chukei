@@ -22,7 +22,12 @@ const 根の名 = `projects/${企画}/databases/(default)/documents`;
 /** テスト用のサービスアカウント（本物の RSA の鍵。署名だけ使う） */
 async function 偽のサービスアカウント() {
   const 組 = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
     true,
     ['sign', 'verify']
   );
@@ -51,7 +56,10 @@ const 欄に = (o) => Object.fromEntries(Object.entries(o).map(([k, v]) => [k, �
 function 偽の雲(文書) {
   const 問い合わせ = [];
   const 読んだ道 = [];
-  const 時 = (欄) => (欄 && 欄.lastModified && 欄.lastModified.timestampValue ? Date.parse(欄.lastModified.timestampValue) : null);
+  const 時 = (欄) =>
+    欄 && 欄.lastModified && 欄.lastModified.timestampValue
+      ? Date.parse(欄.lastModified.timestampValue)
+      : null;
   const 送る = async (url, 頼み = {}) => {
     if (url === 'https://oauth2.googleapis.com/token')
       return new Response(JSON.stringify({ access_token: 'sa-token', expires_in: 3600 }), { status: 200 });
@@ -80,7 +88,7 @@ function 偽の雲(文書) {
         const 下 = Date.parse(問い.where.fieldFilter.value.timestampValue);
         行 = 行.filter((d) => 時(d.fields) !== null && 時(d.fields) >= 下);
       }
-      const 鍵 = (d, o) => (o.field.fieldPath === '__name__' ? d.name : 時(d.fields) ?? -Infinity);
+      const 鍵 = (d, o) => (o.field.fieldPath === '__name__' ? d.name : (時(d.fields) ?? -Infinity));
       const 比べ = (甲, 乙) => {
         for (const o of 問い.orderBy || []) {
           const [x, y] = [鍵(甲, o), 鍵(乙, o)];
@@ -90,7 +98,9 @@ function 偽の雲(文書) {
       };
       行.sort(比べ);
       if (問い.startAt) {
-        const 印 = 問い.startAt.values.map((v) => (v.referenceValue ? v.referenceValue : Date.parse(v.timestampValue)));
+        const 印 = 問い.startAt.values.map((v) =>
+          v.referenceValue ? v.referenceValue : Date.parse(v.timestampValue)
+        );
         const 印の行 = { name: '', fields: {} };
         行 = 行.filter((d) => {
           for (let i = 0; i < 問い.orderBy.length; i++) {
@@ -104,9 +114,15 @@ function 偽の雲(文書) {
       if (問い.limit) 行 = 行.slice(0, 問い.limit);
       if (問い.select) {
         const 残す = 問い.select.fields.map((f) => f.fieldPath);
-        行 = 行.map((d) => ({ name: d.name, fields: Object.fromEntries(Object.entries(d.fields).filter(([k]) => 残す.includes(k))) }));
+        行 = 行.map((d) => ({
+          name: d.name,
+          fields: Object.fromEntries(Object.entries(d.fields).filter(([k]) => 残す.includes(k))),
+        }));
       }
-      return new Response(JSON.stringify(行.map((d) => ({ document: d, readTime: '2026-11-19T00:00:00Z' }))), { status: 200 });
+      return new Response(
+        JSON.stringify(行.map((d) => ({ document: d, readTime: '2026-11-19T00:00:00Z' }))),
+        { status: 200 }
+      );
     }
     読んだ道.push(道);
     const 中 = 文書[道];
@@ -164,7 +180,12 @@ async function 呼ぶ(体, 文書 = 団体の文書(), 本人を替える = {}, 
   if (!控えを残す) 確かめの控えを忘れる();
   const 雲 = 偽の雲(文書);
   const env = { FIREBASE_SA_KEYS: JSON.stringify({ [企画]: await 偽のサービスアカウント() }) };
-  const 結果 = await 自分の記録を返す(頼み(体), env, { ...本人, ...本人を替える }, { 送る: 雲.送る, 今: Date.parse('2026-11-20T00:00:00Z') });
+  const 結果 = await 自分の記録を返す(
+    頼み(体),
+    env,
+    { ...本人, ...本人を替える },
+    { 送る: 雲.送る, 今: Date.parse('2026-11-20T00:00:00Z') }
+  );
   return { ...結果, 雲 };
 }
 
@@ -187,13 +208,23 @@ test('その人の行だけにする：ほかの人の列は空・自分の列�
         bowWeight: 12,
       },
       // ほかの人の列。2 射目から自分が入った
-      { id: 'a2', name: '佐藤 花子', memberId: 'm2', marks: ['○', '○', '×', '○'], substitutions: { 1: '山田 太郎' }, substitutionIds: { 1: 'm1' } },
+      {
+        id: 'a2',
+        name: '佐藤 花子',
+        memberId: 'm2',
+        marks: ['○', '○', '×', '○'],
+        substitutions: { 1: '山田 太郎' },
+        substitutionIds: { 1: 'm1' },
+      },
       { id: 'a3', name: '鈴木 一', memberId: 'm3', marks: ['○'], bowWeight: 14 },
       { id: 'sep', isSeparator: true, name: '相手校' },
     ],
   };
   const 出 = 自分の行だけにする(記録, 'm1', '山田 太郎');
-  assert.deepStrictEqual(Object.keys(出).sort(), ['archerNames', 'archers', 'attendance', 'id', 'title'].sort());
+  assert.deepStrictEqual(
+    Object.keys(出).sort(),
+    ['archerNames', 'archers', 'attendance', 'id', 'title'].sort()
+  );
   assert.deepStrictEqual(出.attendance, { m1: 'present' });
   assert.deepStrictEqual(出.archerNames, ['山田 太郎']);
   const [自分, 入った, ほか, 区切り] = 出.archers;
@@ -203,19 +234,45 @@ test('その人の行だけにする：ほかの人の列は空・自分の列�
   assert.deepStrictEqual(入った.marks, ['', '○', '×', '○'], '自分が入ったあとの射だけ残す');
   assert.strictEqual(入った.name, 他の人);
   assert.strictEqual(入った.memberId, undefined);
-  assert.deepStrictEqual(ほか, { id: 'a3', name: '', marks: [], substitutions: {}, substitutionIds: {}, isGuest: false });
-  assert.deepStrictEqual(区切り, { id: 'sep', name: '', marks: [], substitutions: {}, substitutionIds: {}, isGuest: false, isSeparator: true });
+  assert.deepStrictEqual(ほか, {
+    id: 'a3',
+    name: '',
+    marks: [],
+    substitutions: {},
+    substitutionIds: {},
+    isGuest: false,
+  });
+  assert.deepStrictEqual(区切り, {
+    id: 'sep',
+    name: '',
+    marks: [],
+    substitutions: {},
+    substitutionIds: {},
+    isGuest: false,
+    isSeparator: true,
+  });
   // 写っていない記録は null。部員 ID の無い列は名前で拾う
-  assert.strictEqual(自分の行だけにする({ id: 's2', archers: [{ name: '佐藤 花子', memberId: 'm2' }] }, 'm1', '山田 太郎'), null);
-  assert.ok(自分の行だけにする({ id: 's3', archers: [{ name: '山田 太郎', marks: ['○'] }] }, 'm1', '山田 太郎'));
+  assert.strictEqual(
+    自分の行だけにする({ id: 's2', archers: [{ name: '佐藤 花子', memberId: 'm2' }] }, 'm1', '山田 太郎'),
+    null
+  );
+  assert.ok(
+    自分の行だけにする({ id: 's3', archers: [{ name: '山田 太郎', marks: ['○'] }] }, 'm1', '山田 太郎')
+  );
   // 同姓同名でも、別の部員 ID の列は自分にしない
-  assert.strictEqual(自分の行だけにする({ id: 's4', archers: [{ name: '山田 太郎', memberId: 'm9' }] }, 'm1', '山田 太郎'), null);
+  assert.strictEqual(
+    自分の行だけにする({ id: 's4', archers: [{ name: '山田 太郎', memberId: 'm9' }] }, 'm1', '山田 太郎'),
+    null
+  );
 });
 
 test('差分：自分の写った記録を絞って返し、写っていない記録は外す。ゴミ箱へ移った記録と境目も返す', async () => {
   const { 状態, 中身, 雲 } = await 呼ぶ({ 団体, 形: '差分', 境目: { 記録: 0, ごみ箱: 0 } });
   assert.strictEqual(状態, 200);
-  assert.deepStrictEqual(中身.記録.map((r) => r.id), ['s1']);
+  assert.deepStrictEqual(
+    中身.記録.map((r) => r.id),
+    ['s1']
+  );
   assert.deepStrictEqual(中身.外す, ['s2']);
   assert.deepStrictEqual(中身.消えた, [{ id: 's9', 時: 時(500).getTime() }]);
   assert.deepStrictEqual(中身.境目, { 記録: 時(2000).getTime(), ごみ箱: 時(500).getTime() });
@@ -246,7 +303,10 @@ test('差分・全部はページに分けて返し、続きで次のページ�
     assert.strictEqual(一.状態, 200, 形);
     assert.strictEqual(一.中身.記録.length + 一.中身.外す.length, ページ, `${形}：1 ページの数`);
     assert.ok(一.中身.続き, `${形}：続きが無い`);
-    const 二 = await 呼ぶ({ 団体, 形, 境目: { 記録: 時(5000).getTime() }, 続き: 一.中身.続き, 件: ページ }, 文書);
+    const 二 = await 呼ぶ(
+      { 団体, 形, 境目: { 記録: 時(5000).getTime() }, 続き: 一.中身.続き, 件: ページ },
+      文書
+    );
     assert.strictEqual(二.状態, 200, 形);
     assert.strictEqual(二.中身.続き, null, `${形}：最後のページなのに続きがある`);
     const 全部のid = [...一.中身.記録, ...二.中身.記録].map((r) => r.id).concat(一.中身.外す, 二.中身.外す);
@@ -264,7 +324,10 @@ test('差分・全部はページに分けて返し、続きで次のページ�
 test('id：自分の写った記録は絞って返し、写っていない・無い記録は外す', async () => {
   const { 状態, 中身 } = await 呼ぶ({ 団体, 形: 'id', ids: ['s1', 's2', 'none'] });
   assert.strictEqual(状態, 200);
-  assert.deepStrictEqual(中身.記録.map((r) => r.id), ['s1']);
+  assert.deepStrictEqual(
+    中身.記録.map((r) => r.id),
+    ['s1']
+  );
   assert.deepStrictEqual(中身.外す.sort(), ['none', 's2']);
 });
 
@@ -272,7 +335,10 @@ test('断る：鍵が無い（404）・匿名でない・所属の証が無い�
   証の控えを忘れる();
   const 鍵なし = await 自分の記録を返す(頼み({ 団体, 形: '差分' }), {}, 本人, {});
   assert.strictEqual(鍵なし.状態, 404);
-  assert.strictEqual((await 呼ぶ({ 団体, 形: '差分' }, 団体の文書(), { firebase: { sign_in_provider: 'password' } })).状態, 403);
+  assert.strictEqual(
+    (await 呼ぶ({ 団体, 形: '差分' }, 団体の文書(), { firebase: { sign_in_provider: 'password' } })).状態,
+    403
+  );
   assert.strictEqual((await 呼ぶ({ 団体: '100002', 形: '差分' })).状態, 403, '別の団体の記録を読めた');
   const 証なし = 団体の文書();
   delete 証なし[`/member_claims/${本人.sub}`];
@@ -282,13 +348,17 @@ test('断る：鍵が無い（404）・匿名でない・所属の証が無い�
   assert.strictEqual((await 呼ぶ({ 団体, 形: '差分' }, 名簿なし)).状態, 403);
   // 卒業・退部にした人には渡さない（11/26 本人）
   for (const 在籍 of ['卒業', '退部']) {
-    const 抜けた = 団体の文書({ [`/groups/${団体}/members/m1`]: { id: 'm1', name: '山田 太郎', enrollment: 在籍 } });
+    const 抜けた = 団体の文書({
+      [`/groups/${団体}/members/m1`]: { id: 'm1', name: '山田 太郎', enrollment: 在籍 },
+    });
     assert.strictEqual((await 呼ぶ({ 団体, 形: '差分' }, 抜けた)).状態, 403, `${在籍}の人に記録を渡した`);
   }
-  const 確認まだ =団体の文書({ [`/group_accounts/${団体}`]: { verified: false } });
+  const 確認まだ = 団体の文書({ [`/group_accounts/${団体}`]: { verified: false } });
   assert.ok(Date.parse('2026-11-20T00:00:00Z') > 猶予の終わり);
   assert.strictEqual((await 呼ぶ({ 団体, 形: '差分' }, 確認まだ)).状態, 403);
-  const 四桁 = 団体の文書({ [`/member_claims/${本人.sub}`]: { groupId: 団体, memberId: 'm1', personalId: '1234' } });
+  const 四桁 = 団体の文書({
+    [`/member_claims/${本人.sub}`]: { groupId: 団体, memberId: 'm1', personalId: '1234' },
+  });
   assert.strictEqual((await 呼ぶ({ 団体, 形: '差分' }, 四桁)).状態, 200, '12/3 より前の 4 桁は通す');
   assert.strictEqual((await 呼ぶ({ 団体, 形: 'ぜんぶ' })).状態, 400);
   assert.strictEqual((await 呼ぶ({ 団体, 形: 'id', ids: [] })).状態, 400);
@@ -314,14 +384,24 @@ test('日本語や % を含む id の記録・メンバーも扱う（Firestore 
   });
   const 差分 = await 呼ぶ({ 団体, 形: '差分', 境目: { 記録: 時(2500).getTime() } }, 文書);
   assert.strictEqual(差分.状態, 200);
-  assert.deepStrictEqual(差分.中身.記録.map((r) => r.id), [和], '% を戻して id を壊した');
+  assert.deepStrictEqual(
+    差分.中身.記録.map((r) => r.id),
+    [和],
+    '% を戻して id を壊した'
+  );
   assert.deepStrictEqual(差分.中身.外す, [他]);
   const id = await 呼ぶ({ 団体, 形: 'id', ids: [和, 他, '無い-日本語'] }, 文書);
   assert.strictEqual(id.状態, 200, '日本語の id を断った');
-  assert.deepStrictEqual(id.中身.記録.map((r) => r.id), [和]);
+  assert.deepStrictEqual(
+    id.中身.記録.map((r) => r.id),
+    [和]
+  );
   assert.deepStrictEqual(id.中身.外す.sort(), [他, '無い-日本語'].sort());
   // 続きの名前に日本語の id（ページの切れ目がこの記録でも続きを読める）
-  const 続き = await 呼ぶ({ 団体, 形: '全部', 続き: { 名: `${根の名}/groups/${団体}/sessions/${和}` } }, 文書);
+  const 続き = await 呼ぶ(
+    { 団体, 形: '全部', 続き: { 名: `${根の名}/groups/${団体}/sessions/${和}` } },
+    文書
+  );
   assert.strictEqual(続き.状態, 200, '日本語の id の続きを断った');
   // / を含む id・続きは断る
   assert.strictEqual((await 呼ぶ({ 団体, 形: 'id', ids: ['a/b'] }, 文書)).状態, 400);
@@ -340,7 +420,10 @@ test('日本語や % を含む id の記録・メンバーも扱う（Firestore 
   });
   const 和の答え = await 呼ぶ({ 団体, 形: '差分', 境目: { 記録: 時(3500).getTime() } }, 和の人);
   assert.strictEqual(和の答え.状態, 200, '日本語の id のメンバーを断った');
-  assert.deepStrictEqual(和の答え.中身.記録.map((r) => r.id), ['s7']);
+  assert.deepStrictEqual(
+    和の答え.中身.記録.map((r) => r.id),
+    ['s7']
+  );
 });
 
 test('1 ページの数：頼まれなければ 5 件。答えの大きさから次の件を返す（大きい記録は少なく・小さい記録は 25 件まで。11/20）', async () => {
@@ -367,7 +450,10 @@ test('1 ページの数：頼まれなければ 5 件。答えの大きさから
   // 大きい記録（30 人 × 40 射の矢所つき）：次の件は少なく
   const 大 = await 呼ぶ({ 団体, 形: '全部' }, 団体の文書(記録たち(12, 40)));
   assert.strictEqual(大.中身.記録.length + 大.中身.外す.length, 初めの件);
-  assert.ok(大.中身.次の件 >= 1 && 大.中身.次の件 < 初めの件, '大きい記録なのに次の件を減らさない：' + 大.中身.次の件);
+  assert.ok(
+    大.中身.次の件 >= 1 && 大.中身.次の件 < 初めの件,
+    '大きい記録なのに次の件を減らさない：' + 大.中身.次の件
+  );
   // 件は 1〜25 に収める。id は 5 件まで
   const 多すぎ = await 呼ぶ({ 団体, 形: '全部', 件: 999 }, 団体の文書(記録たち(30, 1)));
   assert.strictEqual(多すぎ.中身.記録.length + 多すぎ.中身.外す.length, ページ);

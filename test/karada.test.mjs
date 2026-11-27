@@ -15,12 +15,20 @@ const 字 = (体) => JSON.stringify(体);
 test('アプリが送る形は通す', () => {
   // 写真の読み取り（OCRRecordModal：generationConfig の responseMimeType と写真）
   const 写真 = {
-    contents: [{ role: 'user', parts: [{ text: '読んでください' }, { inlineData: { mimeType: 'image/jpeg', data: 'QUJD' } }] }],
+    contents: [
+      {
+        role: 'user',
+        parts: [{ text: '読んでください' }, { inlineData: { mimeType: 'image/jpeg', data: 'QUJD' } }],
+      },
+    ],
     generationConfig: { responseMimeType: 'application/json', thinkingConfig: { thinkingBudget: 0 } },
   };
   assert.strictEqual(中継しない体か(字(写真)), null);
   // 出欠の読み取り（AttendanceScreen：temperature）
-  assert.strictEqual(中継しない体か(字({ contents: [{ parts: [{ text: 'x' }] }], generationConfig: { temperature: 0.1 } })), null);
+  assert.strictEqual(
+    中継しない体か(字({ contents: [{ parts: [{ text: 'x' }] }], generationConfig: { temperature: 0.1 } })),
+    null
+  );
   // AI チャット（AIChatBot：systemInstruction と functionDeclarations の道具。道具の返事も積む）
   const チャット = {
     contents: [
@@ -29,7 +37,13 @@ test('アプリが送る形は通す', () => {
       { role: 'user', parts: [{ functionResponse: { name: '的中率', response: { tools: 'x' } } }] },
     ],
     systemInstruction: { parts: [{ text: '弓道部の記録の AI です' }] },
-    tools: [{ functionDeclarations: [{ name: '的中率', description: '', parameters: { type: 'OBJECT', properties: {} } }] }],
+    tools: [
+      {
+        functionDeclarations: [
+          { name: '的中率', description: '', parameters: { type: 'OBJECT', properties: {} } },
+        ],
+      },
+    ],
   };
   assert.strictEqual(中継しない体か(字(チャット)), null);
 });

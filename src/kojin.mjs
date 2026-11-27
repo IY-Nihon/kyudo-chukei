@@ -60,7 +60,13 @@ export function サービスアカウントを選ぶ(置いたもの, 企画) {
     return null;
   }
   const 使える = (鍵) =>
-    鍵 && typeof 鍵 === 'object' && 鍵.client_email && 鍵.private_key && (!鍵.project_id || 鍵.project_id === 企画) ? 鍵 : null;
+    鍵 &&
+    typeof 鍵 === 'object' &&
+    鍵.client_email &&
+    鍵.private_key &&
+    (!鍵.project_id || 鍵.project_id === 企画)
+      ? 鍵
+      : null;
   if (Array.isArray(中身)) return 中身.map(使える).find(Boolean) || null;
   if (中身 && 中身.type === 'service_account') return 使える(中身);
   return 使える(中身 && 中身[企画]);
@@ -74,7 +80,9 @@ const b64url = (バイト) =>
 const 字をb64url = (字) => b64url(new TextEncoder().encode(字));
 
 function PEMをバイトに(pem) {
-  const 中 = String(pem).replace(/-----[^-]+-----/g, '').replace(/\s+/g, '');
+  const 中 = String(pem)
+    .replace(/-----[^-]+-----/g, '')
+    .replace(/\s+/g, '');
   const bin = atob(中);
   const out = new Uint8Array(bin.length);
   for (let i = 0; i < bin.length; i++) out[i] = bin.charCodeAt(i);
@@ -82,7 +90,8 @@ function PEMをバイトに(pem) {
 }
 
 /** Realtime Database を読み書きするときの範囲（ライブの期限を延ばす src/enchou.mjs。2026-11-26） */
-export const RTDBの範囲 = 'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email';
+export const RTDBの範囲 =
+  'https://www.googleapis.com/auth/firebase.database https://www.googleapis.com/auth/userinfo.email';
 
 /**
  * サービスアカウントで Firestore を読み書きするアクセストークン（1 時間）。控えがあればそれを使う。
@@ -100,7 +109,9 @@ export async function サービスの証(
   if (控え && 控え.期限 > 今 + 60000) return 控え.証;
   const 秒 = Math.floor(今 / 1000);
   const 本文 =
-    字をb64url(JSON.stringify({ alg: 'RS256', typ: 'JWT', ...(鍵.private_key_id ? { kid: 鍵.private_key_id } : {}) })) +
+    字をb64url(
+      JSON.stringify({ alg: 'RS256', typ: 'JWT', ...(鍵.private_key_id ? { kid: 鍵.private_key_id } : {}) })
+    ) +
     '.' +
     字をb64url(
       JSON.stringify({
@@ -174,7 +185,8 @@ export async function 部員を確かめる(request, env, 本人, 道具) {
   if (request.method !== 'POST') return { 状態: 405, 中身: { error: 'POST で呼んでください' } };
   if (!(本人.firebase && 本人.firebase.sign_in_provider === 'anonymous'))
     return { 状態: 403, 中身: { error: '部員のログインは匿名の口座で呼んでください' } };
-  if (Number(request.headers.get('Content-Length') || 0) > 2048) return { 状態: 413, 中身: { error: '大きすぎます' } };
+  if (Number(request.headers.get('Content-Length') || 0) > 2048)
+    return { 状態: 413, 中身: { error: '大きすぎます' } };
   let 体;
   try {
     体 = JSON.parse((await request.text()).slice(0, 2048));
@@ -260,7 +272,12 @@ export async function 部員を確かめる(request, env, 本人, 道具) {
       const 設定の欄 = (設定 && 設定.fields) || {};
       return {
         状態: 200,
-        中身: { 結果: '在籍していない', 在籍, 種類: 字(設定の欄.groupType), 呼び方: 字(設定の欄.customWording) },
+        中身: {
+          結果: '在籍していない',
+          在籍,
+          種類: 字(設定の欄.groupType),
+          呼び方: 字(設定の欄.customWording),
+        },
       };
     }
     // 招待リンクで入った人には、その人の本当の個人ID も証に添える（kojinId。2026-11-13 本人）。
@@ -276,7 +293,13 @@ export async function 部員を確かめる(request, env, 本人, 道具) {
           body: JSON.stringify({
             structuredQuery: {
               from: [{ collectionId: 'member_lookup' }],
-              where: { fieldFilter: { field: { fieldPath: 'memberId' }, op: 'EQUAL', value: { stringValue: memberId } } },
+              where: {
+                fieldFilter: {
+                  field: { fieldPath: 'memberId' },
+                  op: 'EQUAL',
+                  value: { stringValue: memberId },
+                },
+              },
               limit: 20,
             },
           }),
@@ -285,7 +308,13 @@ export async function 部員を確かめる(request, env, 本人, 道具) {
         const 候補 = (Array.isArray(行たち) ? 行たち : [])
           .map((行) => 行 && 行.document)
           .filter((文書) => 文書 && 文書.fields && !真偽(文書.fields['招待']) && !真偽(文書.fields['消した']))
-          .map((文書) => decodeURIComponent(String(文書.name || '').split('/').pop()))
+          .map((文書) =>
+            decodeURIComponent(
+              String(文書.name || '')
+                .split('/')
+                .pop()
+            )
+          )
           .filter((id) => 六字の形.test(id) || (四桁の形.test(id) && 今 < 四桁の終わり));
         // 6 字を先に（4 桁は 12/3 で使えなくなる）
         本当のID = 候補.find((id) => 六字の形.test(id)) || 候補[0] || '';

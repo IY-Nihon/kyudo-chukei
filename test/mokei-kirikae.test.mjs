@@ -24,12 +24,21 @@ test('候補：要求した模型が先頭、連鎖の残りが新しい順に�
   );
   assert.strictEqual(候補[1].道, 生成の道('gemini-3.8-flash'));
   const 先頭が最新 = 候補の模型たち(生成の道('gemini-3.8-flash'), 連鎖).map((c) => c.模型);
-  assert.deepStrictEqual(先頭が最新, ['gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-2.5-flash']);
+  assert.deepStrictEqual(先頭が最新, [
+    'gemini-3.8-flash',
+    'gemini-3.7-flash',
+    'gemini-3.6-flash',
+    'gemini-3.5-flash',
+    'gemini-2.5-flash',
+  ]);
 });
 
 test('候補：流し読みの道も同じ形で入れ替える。連鎖に無い模型・一覧・連鎖の指定なしは 1 つだけ', () => {
   const 流し = '/v1beta/models/gemini-3.6-flash:streamGenerateContent';
-  assert.strictEqual(候補の模型たち(流し, 連鎖)[1].道, '/v1beta/models/gemini-3.8-flash:streamGenerateContent');
+  assert.strictEqual(
+    候補の模型たち(流し, 連鎖)[1].道,
+    '/v1beta/models/gemini-3.8-flash:streamGenerateContent'
+  );
   assert.strictEqual(候補の模型たち(生成の道('gemini-1.5-flash'), 連鎖).length, 1);
   assert.strictEqual(候補の模型たち('/v1beta/models', 連鎖).length, 1);
   assert.strictEqual(候補の模型たち(生成の道('gemini-3.6-flash'), undefined).length, 1);
@@ -63,10 +72,16 @@ test('最初の模型が通れば、そのまま返す（切り替えない）',
 test('使う模型が 503 なら、待たずに次の模型（3.8）へ移り、通った返事を返す', async () => {
   const 呼 = [];
   const 待ち = [];
-  const 結果 = await 上流へ送る({ ...注文(呼, (模型) => (模型 === 'gemini-3.6-flash' ? 返事(503) : 返事(200))), 待つ: async (ms) => 待ち.push(ms) });
+  const 結果 = await 上流へ送る({
+    ...注文(呼, (模型) => (模型 === 'gemini-3.6-flash' ? 返事(503) : 返事(200))),
+    待つ: async (ms) => 待ち.push(ms),
+  });
   assert.strictEqual(結果.返事.status, 200);
   assert.strictEqual(結果.使った模型, 'gemini-3.8-flash');
-  assert.deepStrictEqual(呼.map((c) => c.模型), ['gemini-3.6-flash', 'gemini-3.8-flash']);
+  assert.deepStrictEqual(
+    呼.map((c) => c.模型),
+    ['gemini-3.6-flash', 'gemini-3.8-flash']
+  );
   assert.deepStrictEqual(待ち, [], '次の模型があるうちは待たない');
 });
 
@@ -77,7 +92,16 @@ test('3.8 も 3.7 も混んでいれば、3.6 が空くまで順に試して、�
   assert.strictEqual(結果.返事.status, 503);
   assert.deepStrictEqual(
     呼.map((c) => c.模型),
-    ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.7-flash', 'gemini-3.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash', 'gemini-2.5-flash']
+    [
+      'gemini-3.6-flash',
+      'gemini-3.8-flash',
+      'gemini-3.7-flash',
+      'gemini-3.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash',
+      'gemini-2.5-flash',
+    ]
   );
   assert.strictEqual(待ち.length, 3, '最後の模型だけ、混みの待ち（3 回）');
 });
@@ -86,7 +110,10 @@ test('429（上限）は、まず鍵を替え、どの鍵も上限ならその�
   const 呼 = [];
   const 結果 = await 上流へ送る(注文(呼, (模型) => (模型 === 'gemini-3.6-flash' ? 返事(429) : 返事(200)), 3));
   assert.strictEqual(結果.返事.status, 200);
-  assert.deepStrictEqual(呼.map((c) => c.模型 + ':' + c.鍵), ['gemini-3.6-flash:K0', 'gemini-3.6-flash:K1', 'gemini-3.6-flash:K2', 'gemini-3.8-flash:K0']);
+  assert.deepStrictEqual(
+    呼.map((c) => c.模型 + ':' + c.鍵),
+    ['gemini-3.6-flash:K0', 'gemini-3.6-flash:K1', 'gemini-3.6-flash:K2', 'gemini-3.8-flash:K0']
+  );
 });
 
 test('404（模型が無い）は次の模型へ。体がおかしい 400 は送り直さない', async () => {
@@ -100,7 +127,12 @@ test('404（模型が無い）は次の模型へ。体がおかしい 400 は送
 });
 
 test('つながらないときは、つながらないと返す', async () => {
-  const 結果 = await 上流へ送る({ ...注文([], () => 返事(200)), fetch: async () => { throw new Error('network'); } });
+  const 結果 = await 上流へ送る({
+    ...注文([], () => 返事(200)),
+    fetch: async () => {
+      throw new Error('network');
+    },
+  });
   assert.strictEqual(結果.つながらない, true);
 });
 
@@ -110,20 +142,30 @@ test('切り替え先の写真の読み取りは考える量を 0 に。流し�
   const 道 = '/v1beta/models/gemini-3.5-flash:generateContent';
   const 体 = (o) => new TextEncoder().encode(JSON.stringify(o));
   const 読む = (b) => JSON.parse(new TextDecoder().decode(b));
-  const 直した = 読む(考えない体(体({ contents: [], generationConfig: { responseMimeType: 'application/json' } }), 道));
+  const 直した = 読む(
+    考えない体(体({ contents: [], generationConfig: { responseMimeType: 'application/json' } }), 道)
+  );
   assert.deepStrictEqual(直した.generationConfig.thinkingConfig, { thinkingBudget: 0 });
   assert.strictEqual(直した.generationConfig.responseMimeType, 'application/json');
-  assert.deepStrictEqual(読む(考えない体(体({ contents: [] }), 道)).generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  assert.deepStrictEqual(読む(考えない体(体({ contents: [] }), 道)).generationConfig.thinkingConfig, {
+    thinkingBudget: 0,
+  });
   const 自分で = 体({ generationConfig: { thinkingConfig: { thinkingLevel: 'low' } } });
   assert.strictEqual(考えない体(自分で, 道), 自分で);
   // 流し読み：AI チャット（道具・system 指示つき、JSON 出力でない）はそのまま。写真の読み取り（JSON 出力・道具なし）は考えない
   const 流し道 = '/v1beta/models/gemini-3.8-flash:streamGenerateContent';
-  const チャット = 体({ contents: [], tools: [{ functionDeclarations: [] }], systemInstruction: { parts: [] } });
+  const チャット = 体({
+    contents: [],
+    tools: [{ functionDeclarations: [] }],
+    systemInstruction: { parts: [] },
+  });
   assert.strictEqual(考えない体(チャット, 流し道), チャット);
   const 文だけ = 体({ contents: [] });
   assert.strictEqual(考えない体(文だけ, 流し道), 文だけ, 'JSON 出力でない流し読みはそのまま');
   const 読み取り = 体({ contents: [], generationConfig: { responseMimeType: 'application/json' } });
-  assert.deepStrictEqual(読む(考えない体(読み取り, 流し道)).generationConfig.thinkingConfig, { thinkingBudget: 0 });
+  assert.deepStrictEqual(読む(考えない体(読み取り, 流し道)).generationConfig.thinkingConfig, {
+    thinkingBudget: 0,
+  });
   const 変な = new TextEncoder().encode('not json');
   assert.strictEqual(考えない体(変な, 道), 変な);
   assert.strictEqual(考えない体(undefined, 道), undefined);
@@ -132,7 +174,10 @@ test('切り替え先の写真の読み取りは考える量を 0 に。流し�
 test('先頭以外の模型に送るときだけ、体を考えない形に直して送る', async () => {
   const 体たち = [];
   const 結果 = await 上流へ送る({
-    候補: 候補の模型たち('/v1beta/models/gemini-3.6-flash:generateContent', 'gemini-3.6-flash,gemini-3.5-flash'),
+    候補: 候補の模型たち(
+      '/v1beta/models/gemini-3.6-flash:generateContent',
+      'gemini-3.6-flash,gemini-3.5-flash'
+    ),
     鍵たち: ['K0'],
     始めの鍵: 0,
     search: '',
@@ -141,7 +186,9 @@ test('先頭以外の模型に送るときだけ、体を考えない形に直�
     種: 'application/json',
     fetch: async (url, init) => {
       体たち.push(new TextDecoder().decode(init.body));
-      return url.includes('gemini-3.6-flash') ? { status: 503, clone: () => ({ text: async () => '' }), body: null } : { status: 200, clone: () => ({ text: async () => '' }), body: null };
+      return url.includes('gemini-3.6-flash')
+        ? { status: 503, clone: () => ({ text: async () => '' }), body: null }
+        : { status: 200, clone: () => ({ text: async () => '' }), body: null };
     },
     待つ: async () => {},
   });
@@ -153,18 +200,35 @@ test('先頭以外の模型に送るときだけ、体を考えない形に直�
 import { 流れの先頭を見る, 送り直す訳 } from '../src/index.mjs';
 
 const 流しの道 = '/v1beta/models/gemini-3.6-flash:streamGenerateContent';
-const 流れ = (...塊) => new ReadableStream({ start(c) { for (const x of 塊) c.enqueue(new TextEncoder().encode(x)); c.close(); } });
+const 流れ = (...塊) =>
+  new ReadableStream({
+    start(c) {
+      for (const x of 塊) c.enqueue(new TextEncoder().encode(x));
+      c.close();
+    },
+  });
 
 test('流し読み：200 でも体がエラー JSON なら、そのエラーの code を状態にして返す（503 は混みとして切り替えられる）', async () => {
-  const 返事 = await 流れの先頭を見る(new Response(流れ('{\n  "error": {\n    "code": 503,\n    "message": "high demand"\n  }\n}\n'), { status: 200 }), 流しの道);
+  const 返事 = await 流れの先頭を見る(
+    new Response(流れ('{\n  "error": {\n    "code": 503,\n    "message": "high demand"\n  }\n}\n'), {
+      status: 200,
+    }),
+    流しの道
+  );
   assert.strictEqual(返事.status, 503);
   assert.strictEqual(await 送り直す訳({ status: 返事.status, clone: () => 返事.clone() }), '混み');
-  const 上限 = await 流れの先頭を見る(new Response(流れ('{"error":{"code":429,"message":"quota"}}'), { status: 200 }), 流しの道);
+  const 上限 = await 流れの先頭を見る(
+    new Response(流れ('{"error":{"code":429,"message":"quota"}}'), { status: 200 }),
+    流しの道
+  );
   assert.strictEqual(上限.status, 429);
 });
 
 test('流し読み：普通の流れ（data: で始まる）は、読んだ塊を頭に戻してそのまま返す', async () => {
-  const 返事 = await 流れの先頭を見る(new Response(流れ('data: {"a":1}\r\n\r\n', 'data: {"a":2}\r\n\r\n'), { status: 200 }), 流しの道);
+  const 返事 = await 流れの先頭を見る(
+    new Response(流れ('data: {"a":1}\r\n\r\n', 'data: {"a":2}\r\n\r\n'), { status: 200 }),
+    流しの道
+  );
   assert.strictEqual(返事.status, 200);
   assert.strictEqual(await 返事.text(), 'data: {"a":1}\r\n\r\ndata: {"a":2}\r\n\r\n');
 });
@@ -180,7 +244,10 @@ test('流し読みでない道・体の無い返事・200 でない返事は触�
 test('流し読みで 200 の中身が 503 なら、次の模型へ切り替える', async () => {
   const 呼 = [];
   const 結果 = await 上流へ送る({
-    候補: 候補の模型たち('/v1beta/models/gemini-3.6-flash:streamGenerateContent', 'gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash'),
+    候補: 候補の模型たち(
+      '/v1beta/models/gemini-3.6-flash:streamGenerateContent',
+      'gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash'
+    ),
     鍵たち: ['K0'],
     始めの鍵: 0,
     search: '?alt=sse',
@@ -203,18 +270,44 @@ test('流し読みで 200 の中身が 503 なら、次の模型へ切り替え�
 import { 見出しを整える } from '../src/index.mjs';
 
 test('読み直した流れの見出しから、圧縮・長さ・転送の指定を外す（付けたままだとブラウザが受け取れない）', async () => {
-  const 頭 = 見出しを整える(new Headers({ 'Content-Type': 'text/event-stream', 'Content-Encoding': 'gzip', 'Content-Length': '123', 'Transfer-Encoding': 'chunked' }));
+  const 頭 = 見出しを整える(
+    new Headers({
+      'Content-Type': 'text/event-stream',
+      'Content-Encoding': 'gzip',
+      'Content-Length': '123',
+      'Transfer-Encoding': 'chunked',
+    })
+  );
   assert.strictEqual(頭.get('content-type'), 'text/event-stream');
   assert.strictEqual(頭.get('content-encoding'), null);
   assert.strictEqual(頭.get('content-length'), null);
   assert.strictEqual(頭.get('transfer-encoding'), null);
-  const 返事 = await 流れの先頭を見る(new Response(流れ('data: {"a":1}\r\n\r\n'), { status: 200, headers: { 'Content-Type': 'text/event-stream', 'Content-Length': '999' } }), 流しの道);
+  const 返事 = await 流れの先頭を見る(
+    new Response(流れ('data: {"a":1}\r\n\r\n'), {
+      status: 200,
+      headers: { 'Content-Type': 'text/event-stream', 'Content-Length': '999' },
+    }),
+    流しの道
+  );
   assert.strictEqual(返事.headers.get('content-length'), null);
   assert.strictEqual(返事.headers.get('content-type'), 'text/event-stream');
 });
 
 test('写真つきの大きな体（1MB 超）でも、考えない体は軽い（JSON を読み直さない。CPU の上限に掛からない）', () => {
-  const 大 = new TextEncoder().encode(JSON.stringify({ contents: [{ role: 'user', parts: [{ text: 'x"tools":y' }, { inlineData: { mimeType: 'image/jpeg', data: 'A'.repeat(1_400_000) } }] }], generationConfig: { responseMimeType: 'application/json' } }));
+  const 大 = new TextEncoder().encode(
+    JSON.stringify({
+      contents: [
+        {
+          role: 'user',
+          parts: [
+            { text: 'x"tools":y' },
+            { inlineData: { mimeType: 'image/jpeg', data: 'A'.repeat(1_400_000) } },
+          ],
+        },
+      ],
+      generationConfig: { responseMimeType: 'application/json' },
+    })
+  );
   const t0 = performance.now();
   let 結果;
   for (let i = 0; i < 20; i++) 結果 = 考えない体(大, '/v1beta/models/gemini-3.5-flash:streamGenerateContent');
@@ -225,7 +318,11 @@ test('写真つきの大きな体（1MB 超）でも、考えない体は軽い�
   assert.strictEqual(直した.generationConfig.responseMimeType, 'application/json');
   // generationConfig が空・無い体も、壊れない JSON のまま
   for (const 元 of ['{"contents":[],"generationConfig":{}}', '{"contents":[]}']) {
-    const j = JSON.parse(new TextDecoder().decode(考えない体(new TextEncoder().encode(元), '/v1beta/models/gemini-3.5-flash:generateContent')));
+    const j = JSON.parse(
+      new TextDecoder().decode(
+        考えない体(new TextEncoder().encode(元), '/v1beta/models/gemini-3.5-flash:generateContent')
+      )
+    );
     assert.deepStrictEqual(j.generationConfig.thinkingConfig, { thinkingBudget: 0 });
   }
 });
@@ -235,10 +332,15 @@ test('全部の鍵が 429 の模型は、控えの間は飛ばして次の模型
   const 送る = async (url) => {
     const 模型 = url.match(/models\/([^:]+):/)[1];
     呼.push(模型);
-    return 模型 === 'gemini-3.6-flash' || 模型 === 'gemini-3.8-flash' ? { status: 429, clone: () => ({ text: async () => '' }), body: null } : { status: 200, clone: () => ({ text: async () => '' }), body: null };
+    return 模型 === 'gemini-3.6-flash' || 模型 === 'gemini-3.8-flash'
+      ? { status: 429, clone: () => ({ text: async () => '' }), body: null }
+      : { status: 200, clone: () => ({ text: async () => '' }), body: null };
   };
   const 注文 = () => ({
-    候補: 候補の模型たち('/v1beta/models/gemini-3.6-flash:generateContent', 'gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash'),
+    候補: 候補の模型たち(
+      '/v1beta/models/gemini-3.6-flash:generateContent',
+      'gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash'
+    ),
     鍵たち: ['K0', 'K1', 'K2'],
     始めの鍵: 0,
     search: '',
@@ -260,7 +362,14 @@ test('連鎖の指定を空にすれば、切り替えない（試験で、そ�
   assert.strictEqual(候補の模型たち(生成の道('gemini-3.8-flash'), '').length, 1);
 });
 
-import { 直近に答えた模型, 先頭に回す, 答えた模型を見る長さ, 答えた模型を忘れる, 答えた模型を控える, 答えた模型の控えの長さ } from '../src/index.mjs';
+import {
+  直近に答えた模型,
+  先頭に回す,
+  答えた模型を見る長さ,
+  答えた模型を忘れる,
+  答えた模型を控える,
+  答えた模型の控えの長さ,
+} from '../src/index.mjs';
 
 /** chukei_calls を 1 つの配列で持つ偽の D1（prepare → bind → first だけ） */
 const 偽のD1 = (行たち, 落ちる = false) => ({
@@ -313,13 +422,19 @@ test('直近に答えた模型：実体の中で 60 秒控える（毎回 D1 を
   assert.strictEqual(読んだ, 1, '60 秒のうちに D1 を読み直した');
   答えた模型を控える('流し読み', 'gemini-3.8-flash', 今 + 31_000);
   assert.strictEqual(await 直近に答えた模型(env, '流し読み', 今 + 32_000), 'gemini-3.8-flash');
-  assert.strictEqual(await 直近に答えた模型(env, '流し読み', 今 + 32_000 + 答えた模型の控えの長さ), 'gemini-3.6-flash');
+  assert.strictEqual(
+    await 直近に答えた模型(env, '流し読み', 今 + 32_000 + 答えた模型の控えの長さ),
+    'gemini-3.6-flash'
+  );
   assert.strictEqual(読んだ, 2);
   答えた模型を忘れる();
 });
 
 test('先頭に回す：その模型だけを先頭へ。ほかの並びは変えない。候補に無い・もう先頭ならそのまま', () => {
-  const 候補 = 候補の模型たち(生成の道('gemini-3.6-flash'), 'gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash');
+  const 候補 = 候補の模型たち(
+    生成の道('gemini-3.6-flash'),
+    'gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash'
+  );
   assert.deepStrictEqual(
     先頭に回す(候補, 'gemini-3.8-flash').map((c) => c.模型),
     ['gemini-3.8-flash', 'gemini-3.6-flash', 'gemini-3.5-flash', 'gemini-3.7-flash']
@@ -347,7 +462,11 @@ test('先頭に回した模型が頼んだ模型でなければ、その模型�
     fetch: async (url, init) => {
       const 模型 = url.match(/models\/([^:]+):/)[1];
       体たち[模型] = new TextDecoder().decode(init.body);
-      return { status: 模型 === 'gemini-3.5-flash' ? 503 : 200, clone: () => ({ text: async () => '' }), body: null };
+      return {
+        status: 模型 === 'gemini-3.5-flash' ? 503 : 200,
+        clone: () => ({ text: async () => '' }),
+        body: null,
+      };
     },
     待つ: async () => {},
   });

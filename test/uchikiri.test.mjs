@@ -12,7 +12,9 @@ import { 上流へ送る } from '../src/index.mjs';
 const 生成 = (m) => `/v1beta/models/${m}:generateContent`;
 // signal で止められるまで答えない上流
 const 黙る = (url, 頼み) =>
-  new Promise((_, ng) => 頼み.signal && 頼み.signal.addEventListener('abort', () => ng(new Error('aborted'))));
+  new Promise(
+    (_, ng) => 頼み.signal && 頼み.signal.addEventListener('abort', () => ng(new Error('aborted')))
+  );
 
 test('答えない模型は上限で打ち切り、次の模型の答えを返す', async () => {
   const 送った = [];
@@ -87,9 +89,12 @@ test('最後の模型の混みの待ちは、全体の締め切りでは止め�
     fetch: () => {
       送った++;
       return Promise.resolve(
-        new Response(JSON.stringify({ error: { code: 503, message: 'high demand', status: 'UNAVAILABLE' } }), {
-          status: 503,
-        })
+        new Response(
+          JSON.stringify({ error: { code: 503, message: 'high demand', status: 'UNAVAILABLE' } }),
+          {
+            status: 503,
+          }
+        )
       );
     },
     待つ: async (ms) => {
@@ -107,7 +112,10 @@ test('締め切りが近いと、次の模型があっても待ちを縮め、�
   let 時刻 = 0;
   const 送った = [];
   const 結果 = await 上流へ送る({
-    候補: ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.5-flash'].map((模型) => ({ 模型, 道: 生成(模型) })),
+    候補: ['gemini-3.6-flash', 'gemini-3.8-flash', 'gemini-3.5-flash'].map((模型) => ({
+      模型,
+      道: 生成(模型),
+    })),
     鍵たち: ['a'],
     始めの鍵: 0,
     search: '',
@@ -121,7 +129,10 @@ test('締め切りが近いと、次の模型があっても待ちを縮め、�
     待つ: async () => {},
   });
   // 残り 4000 - 5000 < 0 なので 3.6・3.8 は飛ばし、最後の 3.5 だけ送る
-  assert.deepStrictEqual(送った.map((u) => u.match(/gemini-[\d.]+-flash/)[0]), ['gemini-3.5-flash']);
+  assert.deepStrictEqual(
+    送った.map((u) => u.match(/gemini-[\d.]+-flash/)[0]),
+    ['gemini-3.5-flash']
+  );
   assert.strictEqual(結果.使った模型, 'gemini-3.5-flash');
 });
 
@@ -148,6 +159,10 @@ test('打ち切った模型は、しばらく後ろへ回す（次の頼みで�
   const 二回目 = await 上流へ送る(注文());
   assert.strictEqual(二回目.使った模型, 'gemini-3.6-flash');
   assert.strictEqual(二回目.遅かった, 0);
-  assert.deepStrictEqual(送った.map((u) => u.includes('3.6')), [true], '3.8 を待たずに 3.6 へ');
+  assert.deepStrictEqual(
+    送った.map((u) => u.includes('3.6')),
+    [true],
+    '3.8 を待たずに 3.6 へ'
+  );
   枠切れを忘れる();
 });

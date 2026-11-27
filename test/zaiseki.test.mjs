@@ -17,7 +17,10 @@ test('在籍の項目があればそれが正', () => {
   assert.strictEqual(在籍の状態({ enrollment: 字('卒業') }), '卒業');
   assert.strictEqual(在籍の状態({ enrollment: 字('退部') }), '退部');
   // 在籍に戻した人は、前の形の卒業の印が残っていても在籍
-  assert.strictEqual(在籍の状態({ enrollment: 字('在籍'), isAlumni: 真偽(true), graduationYear: 数(2025) }), '在籍');
+  assert.strictEqual(
+    在籍の状態({ enrollment: 字('在籍'), isAlumni: 真偽(true), graduationYear: 数(2025) }),
+    '在籍'
+  );
 });
 
 test('項目が無い・知らない値なら、前の形の卒業生の印で決める', () => {

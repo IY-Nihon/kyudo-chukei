@@ -16,54 +16,104 @@ test('匿名：所属の証があり、その団体を読めれば通す', async
   const 読んだ = [];
   const 読む = async (道) => {
     読んだ.push(道);
-    if (道.startsWith('/member_claims/')) return 返事(200, { fields: { groupId: { stringValue: '100001' } } });
+    if (道.startsWith('/member_claims/'))
+      return 返事(200, { fields: { groupId: { stringValue: '100001' } } });
     if (道 === '/groups/100001') return 返事(200, {});
     return 返事(404, {});
   };
-  assert.equal(await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む }), true);
+  assert.equal(
+    await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む }),
+    true
+  );
   assert.deepStrictEqual(読んだ.slice(-1), ['/groups/100001']);
 });
 
 test('匿名：所属の証が無い（共有リンクの来客・作っただけの口座）なら通さない', async () => {
   const 読む = async () => 返事(404, {});
-  assert.equal(await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む }), false);
+  assert.equal(
+    await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む }),
+    false
+  );
 });
 
 test('匿名：証はあっても団体を読めない（確認の済んでいない団体・猶予のあと）なら通さない', async () => {
   const 読む = async (道) =>
-    道.startsWith('/member_claims/') ? 返事(200, { fields: { groupId: { stringValue: '100002' } } }) : 返事(403, {});
-  assert.equal(await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む }), false);
+    道.startsWith('/member_claims/')
+      ? 返事(200, { fields: { groupId: { stringValue: '100002' } } })
+      : 返事(403, {});
+  assert.equal(
+    await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む }),
+    false
+  );
 });
 
 test('メール：自分のメールの団体を読めれば通す。団体が無い・読めないなら通さない', async () => {
   const 団体あり = async (道) =>
     道 === ':runQuery'
-      ? 返事(200, [{ document: { name: 'x/group_accounts/123456', fields: { id: { stringValue: '123456' } } } }])
+      ? 返事(200, [
+          { document: { name: 'x/group_accounts/123456', fields: { id: { stringValue: '123456' } } } },
+        ])
       : 返事(道 === '/groups/123456' ? 200 : 403, {});
-  assert.equal(await 通してよい人か(人({ email: 'a@example.com', firebase: { sign_in_provider: 'password' } }), 't', { 読む: 団体あり }), true);
+  assert.equal(
+    await 通してよい人か(人({ email: 'a@example.com', firebase: { sign_in_provider: 'password' } }), 't', {
+      読む: 団体あり,
+    }),
+    true
+  );
   const 団体なし = async (道) => (道 === ':runQuery' ? 返事(200, [{ readTime: 'x' }]) : 返事(403, {}));
-  assert.equal(await 通してよい人か(人({ email: 'b@example.com', firebase: { sign_in_provider: 'password' } }), 't', { 読む: 団体なし }), false);
+  assert.equal(
+    await 通してよい人か(人({ email: 'b@example.com', firebase: { sign_in_provider: 'password' } }), 't', {
+      読む: 団体なし,
+    }),
+    false
+  );
   const 確認前 = async (道) =>
     道 === ':runQuery'
       ? 返事(200, [{ document: { name: 'x/group_accounts/654321', fields: {} } }])
       : 返事(403, {});
-  assert.equal(await 通してよい人か(人({ email: 'c@example.com', firebase: { sign_in_provider: 'password' } }), 't', { 読む: 確認前 }), false);
-  assert.equal(await 通してよい人か(人({ firebase: { sign_in_provider: 'password' } }), 't', { 読む: 団体あり }), false, 'メールの無い証');
+  assert.equal(
+    await 通してよい人か(人({ email: 'c@example.com', firebase: { sign_in_provider: 'password' } }), 't', {
+      読む: 確認前,
+    }),
+    false
+  );
+  assert.equal(
+    await 通してよい人か(人({ firebase: { sign_in_provider: 'password' } }), 't', { 読む: 団体あり }),
+    false,
+    'メールの無い証'
+  );
 });
 
 test('Firestore に届かないとき（混み・障害）は通さない。前に通した人だけ、確かめてから 1 時間まで通す。答えは人ごとに控える', async () => {
   通す控えを忘れる();
-  assert.equal(await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む: async () => 返事(503, {}) }), false);
-  assert.equal(await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む: async () => { throw new Error('net'); } }), false);
+  assert.equal(
+    await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', {
+      読む: async () => 返事(503, {}),
+    }),
+    false
+  );
+  assert.equal(
+    await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', {
+      読む: async () => {
+        throw new Error('net');
+      },
+    }),
+    false
+  );
   {
     const 前に通した = 人({ firebase: { sign_in_provider: 'anonymous' } });
     const 読める = async (道) =>
-      道.startsWith('/member_claims/') ? 返事(200, { fields: { groupId: { stringValue: '100001' } } }) : 返事(200, {});
+      道.startsWith('/member_claims/')
+        ? 返事(200, { fields: { groupId: { stringValue: '100001' } } })
+        : 返事(200, {});
     assert.equal(await 通してよい人か(前に通した, 't', { 読む: 読める, 今: 5000 }), true);
     const 届かない = async () => 返事(503, {});
     // 控えの期限（10 分）が過ぎても、確かめてから 1 時間のうちは通す
     assert.equal(await 通してよい人か(前に通した, 't', { 読む: 届かない, 今: 5000 + 11 * 60 * 1000 }), true);
-    assert.equal(await 通してよい人か(前に通した, 't', { 読む: 届かない, 今: 5000 + 届かないときの延長 + 1 }), false);
+    assert.equal(
+      await 通してよい人か(前に通した, 't', { 読む: 届かない, 今: 5000 + 届かないときの延長 + 1 }),
+      false
+    );
   }
   let 回 = 0;
   const 本人 = 人({ firebase: { sign_in_provider: 'anonymous' } });
@@ -79,9 +129,18 @@ test('団体が分かるとき（X-Kyudo-Group）は groups/{団体} を 1 回�
   通す控えを忘れる();
   const 読んだ = [];
   const 読む = async (道) => (読んだ.push(道), 返事(道 === '/groups/100001' ? 200 : 403, {}));
-  assert.equal(await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む, 団体: '100001' }), true);
+  assert.equal(
+    await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む, 団体: '100001' }),
+    true
+  );
   assert.deepStrictEqual(読んだ, ['/groups/100001'], '団体が分かるのに 2 回読んだ');
-  assert.equal(await 通してよい人か(人({ email: 'a@example.com', firebase: { sign_in_provider: 'password' } }), 't', { 読む, 団体: '100002' }), false);
+  assert.equal(
+    await 通してよい人か(人({ email: 'a@example.com', firebase: { sign_in_provider: 'password' } }), 't', {
+      読む,
+      団体: '100002',
+    }),
+    false
+  );
   // 形の合わない団体は使わず、前の道（2 回読む）で決める
   読んだ.length = 0;
   await 通してよい人か(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む, 団体: '../x' });
@@ -107,7 +166,10 @@ test('通してよいかの控えは D1 にも置き、別の実体でも読み�
   const 読む = async () => (回++, 返事(200, {}));
   const 本人 = 人({ firebase: { sign_in_provider: 'anonymous' } });
   const 書いた = [];
-  assert.equal(await 通してよい人か(本人, 't', { 読む, 団体: '100001', env, 今: 1000, 待たずに: (p) => 書いた.push(p) }), true);
+  assert.equal(
+    await 通してよい人か(本人, 't', { 読む, 団体: '100001', env, 今: 1000, 待たずに: (p) => 書いた.push(p) }),
+    true
+  );
   await Promise.all(書いた);
   assert.equal(表.size, 1);
   const [印] = [...表.keys()];
@@ -127,7 +189,12 @@ test('通してよい人か：端末の App Check の印を Firestore の読み�
     return new Response('{}', { status: 200 });
   };
   try {
-    const 本人 = { sub: 'u-shirushi', aud: 'kyudoscoremanager', email: 'z@example.com', firebase: { sign_in_provider: 'password' } };
+    const 本人 = {
+      sub: 'u-shirushi',
+      aud: 'kyudoscoremanager',
+      email: 'z@example.com',
+      firebase: { sign_in_provider: 'password' },
+    };
     assert.equal(await 通してよい人か(本人, 't', { 団体: '100001', 印: 'shirushi-1' }), true);
     assert.equal(見た[0]['X-Firebase-AppCheck'], 'shirushi-1');
     assert.equal(await 通してよい人か({ ...本人, sub: 'u-shirushi-2' }, 't', { 団体: '100002' }), true);
@@ -143,31 +210,46 @@ test('通してよい人かと団体：見出しが無くても、名簿から�
   let 読んだ回数 = 0;
   const 読む = async (道) => {
     読んだ回数++;
-    if (道.startsWith('/member_claims/')) return 返事(200, { fields: { groupId: { stringValue: '100001' } } });
+    if (道.startsWith('/member_claims/'))
+      return 返事(200, { fields: { groupId: { stringValue: '100001' } } });
     return 返事(道 === '/groups/100001' ? 200 : 404, {});
   };
   assert.deepStrictEqual(await 通してよい人かと団体(部員, 't', { 読む }), { 通す: true, 団体: '100001' });
   const 前の回数 = 読んだ回数;
-  assert.deepStrictEqual(await 通してよい人かと団体(部員, 't', { 読む }), { 通す: true, 団体: '100001' }, '控えから');
+  assert.deepStrictEqual(
+    await 通してよい人かと団体(部員, 't', { 読む }),
+    { 通す: true, 団体: '100001' },
+    '控えから'
+  );
   assert.strictEqual(読んだ回数, 前の回数, '控えがあるのに読み直した');
   // メールの持ち主
   const 団体あり = async (道) =>
     道 === ':runQuery'
-      ? 返事(200, [{ document: { name: 'x/group_accounts/123456', fields: { id: { stringValue: '123456' } } } }])
+      ? 返事(200, [
+          { document: { name: 'x/group_accounts/123456', fields: { id: { stringValue: '123456' } } } },
+        ])
       : 返事(道 === '/groups/123456' ? 200 : 403, {});
   assert.deepStrictEqual(
-    await 通してよい人かと団体(人({ email: 'd@example.com', firebase: { sign_in_provider: 'password' } }), 't', { 読む: 団体あり }),
+    await 通してよい人かと団体(
+      人({ email: 'd@example.com', firebase: { sign_in_provider: 'password' } }),
+      't',
+      { 読む: 団体あり }
+    ),
     { 通す: true, 団体: '123456' }
   );
   // 見出しがあれば、その団体（読めたときだけ）
   assert.deepStrictEqual(
-    await 通してよい人かと団体(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む, 団体: '100001' }),
+    await 通してよい人かと団体(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', {
+      読む,
+      団体: '100001',
+    }),
     { 通す: true, 団体: '100001' }
   );
   // 通さないときは団体も空
   assert.deepStrictEqual(
-    await 通してよい人かと団体(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', { 読む: async () => 返事(404, {}) }),
+    await 通してよい人かと団体(人({ firebase: { sign_in_provider: 'anonymous' } }), 't', {
+      読む: async () => 返事(404, {}),
+    }),
     { 通す: false, 団体: '' }
   );
 });
-

@@ -28,9 +28,16 @@ const IDの形 = /^[0-9A-Za-z_-]{1,64}$/;
 /** 選べる長さ（アプリの src/liveShare.js の 期限の選択肢 から「期限なし」を除いたもの） */
 export const 延ばせる持ち = [12 * 3600000, 24 * 3600000, 7 * 24 * 3600000];
 /** ライブ名に使えない字（Realtime Database の道を壊す。アプリの syncRules.js の ライブ名に使えない字 と同じ） */
-const 名前に使えない = /[/.#$[\]\u0000-\u001f\u007f]/;
+// 制御文字（0〜31・127）も道を壊す。正規表現に制御文字を書かずに 1 字ずつ見る（11/28 の lint）
+const 名前に使えない = {
+  test: (字) =>
+    [...String(字)].some(
+      (一字) => '/.#$[]'.includes(一字) || 一字.charCodeAt(0) < 32 || 一字.charCodeAt(0) === 127
+    ),
+};
 /** 枝の形（database.rules.json と同じ 20〜64 字） */
-const 枝の形 = (枝) => typeof 枝 === 'string' && 枝.length >= 20 && 枝.length <= 64 && !名前に使えない.test(枝);
+const 枝の形 = (枝) =>
+  typeof 枝 === 'string' && 枝.length >= 20 && 枝.length <= 64 && !名前に使えない.test(枝);
 
 const 字の欄 = (欄) => (欄 && typeof 欄.stringValue === 'string' ? 欄.stringValue : '');
 const 字の欄の真偽 = (欄) => !!(欄 && 欄.booleanValue === true);
@@ -59,7 +66,8 @@ export async function 期限を延ばす(request, env, 本人, 道具 = {}) {
   const 鍵束 = サービスアカウントを選ぶ(env.FIREBASE_SA_KEYS, 本人.aud);
   if (!鍵束) return { 状態: 404, 中身: { error: 'この道は中継しません' } };
   if (request.method !== 'POST') return { 状態: 405, 中身: { error: 'POST で呼んでください' } };
-  if (Number(request.headers.get('Content-Length') || 0) > 2048) return { 状態: 413, 中身: { error: '大きすぎます' } };
+  if (Number(request.headers.get('Content-Length') || 0) > 2048)
+    return { 状態: 413, 中身: { error: '大きすぎます' } };
   let 頼み;
   try {
     頼み = 頼みを読む(JSON.parse((await request.text()).slice(0, 2048)));
@@ -101,7 +109,10 @@ export async function 期限を延ばす(request, env, 本人, 道具 = {}) {
 
   try {
     // 人：団体アカウントか、在籍している部員か
-    const [帳面, 団体の文書] = await Promise.all([文書を読む(`group_accounts/${団体}`), 文書を読む(`groups/${団体}`)]);
+    const [帳面, 団体の文書] = await Promise.all([
+      文書を読む(`group_accounts/${団体}`),
+      文書を読む(`groups/${団体}`),
+    ]);
     if (!帳面) return { 状態: 403, 中身: { error: 'この団体のライブは延ばせません' } };
     const 匿名 = !!(本人.firebase && 本人.firebase.sign_in_provider === 'anonymous');
     let 通す = false;
@@ -121,7 +132,10 @@ export async function 期限を延ばす(request, env, 本人, 道具 = {}) {
       }
     }
     if (!通す)
-      return { 状態: 403, 中身: { error: '期限を延ばせるのは、団体のアカウントと在籍しているメンバーだけです' } };
+      return {
+        状態: 403,
+        中身: { error: '期限を延ばせるのは、団体のアカウントと在籍しているメンバーだけです' },
+      };
 
     // ライブ：団体の枝の道しるべ（または盤面）に配った枝がある
     const 団の枝 = 字の欄((団体の文書 || {}).liveSecret);
@@ -134,9 +148,13 @@ export async function 期限を延ばす(request, env, 本人, 道具 = {}) {
     // 期限：まだ切れていない・今より後へ
     const 今の期限 = await RTDBを読む(`live_limits/${共の枝}`);
     if (typeof 今の期限 !== 'number' || 今の期限 <= 今)
-      return { 状態: 410, 中身: { error: 'リンクの期限が切れています。続けるときは、新しくライブを配ってください' } };
+      return {
+        状態: 410,
+        中身: { error: 'リンクの期限が切れています。続けるときは、新しくライブを配ってください' },
+      };
     const 新しい期限 = 今 + 持ち;
-    if (新しい期限 <= 今の期限) return { 状態: 409, 中身: { error: '今の期限より短くはできません', 期限: 今の期限 } };
+    if (新しい期限 <= 今の期限)
+      return { 状態: 409, 中身: { error: '今の期限より短くはできません', 期限: 今の期限 } };
     // 共有の盤面がもう無い（保存して片付けた・片付けの途中）なら書かない。書くと 期限 だけの盤面が作り直され、
     // 決まりが期限（live_limits）の片付けを断って、期限が切れるまで残った（11/27 の点検）
     // 盤面は大きいので、在るか（項目の名前だけ。shallow）と終わった印だけを読む

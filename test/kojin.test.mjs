@@ -17,7 +17,12 @@ import {
 /** テスト用のサービスアカウント（本物の RSA の鍵。署名だけ使う） */
 async function 偽のサービスアカウント(企画 = 'kyudoscoremanager') {
   const 組 = await crypto.subtle.generateKey(
-    { name: 'RSASSA-PKCS1-v1_5', modulusLength: 2048, publicExponent: new Uint8Array([1, 0, 1]), hash: 'SHA-256' },
+    {
+      name: 'RSASSA-PKCS1-v1_5',
+      modulusLength: 2048,
+      publicExponent: new Uint8Array([1, 0, 1]),
+      hash: 'SHA-256',
+    },
     true,
     ['sign', 'verify']
   );
@@ -48,7 +53,11 @@ function 偽の雲(文書 = {}) {
       トークンを取った++;
       return new Response(JSON.stringify({ access_token: 'sa-token', expires_in: 3600 }), { status: 200 });
     }
-    assert.strictEqual(頼み.headers.Authorization, 'Bearer sa-token', 'サービスアカウントの証で読み書きしていない');
+    assert.strictEqual(
+      頼み.headers.Authorization,
+      'Bearer sa-token',
+      'サービスアカウントの証で読み書きしていない'
+    );
     const 道 = decodeURIComponent(url.replace(/^.*\/documents/, ''));
     // 逆引き表を memberId で引く（招待で入った人の本当の個人ID）
     if (頼み.method === 'POST' && 道.endsWith(':runQuery')) {
@@ -57,7 +66,9 @@ function 偽の雲(文書 = {}) {
       const 探す = JSON.parse(頼み.body).structuredQuery.where.fieldFilter.value.stringValue;
       const 行 = Object.entries(文書)
         .filter(([鍵, 中]) => 鍵.startsWith(親) && 中 && 中.memberId && 中.memberId.stringValue === 探す)
-        .map(([鍵, 中]) => ({ document: { name: 'projects/p/databases/(default)/documents' + 鍵, fields: 中 } }));
+        .map(([鍵, 中]) => ({
+          document: { name: 'projects/p/databases/(default)/documents' + 鍵, fields: 中 },
+        }));
       return new Response(JSON.stringify(行.length ? 行 : [{ readTime: 'x' }]), { status: 200 });
     }
     if (頼み.method === 'PATCH') {
@@ -104,11 +115,16 @@ test('入れる：6 字の個人ID を逆引きして、所属の証を書き、
   assert.strictEqual(証.memberId.stringValue, 'm1');
   // 2 回目はアクセストークンを取り直さない（署名は 1 時間に 1 回）。時刻は 1 回目の 1 分後に決める
   //（前は今の時計で呼び、1 回目に決めた時刻から 1 時間を過ぎる 2026-11-20 の 10 時（日本）から落ちていた）
-  await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), env, { ...匿名, sub: 'anon-2' }, {
-    送る: 雲.送る,
-    回数に収まるか: いつも収まる,
-    今: Date.parse('2026-11-20T00:01:00Z'),
-  });
+  await 部員を確かめる(
+    依頼({ 団体: '100001', 鍵: 'K7MP3X' }),
+    env,
+    { ...匿名, sub: 'anon-2' },
+    {
+      送る: 雲.送る,
+      回数に収まるか: いつも収まる,
+      今: Date.parse('2026-11-20T00:01:00Z'),
+    }
+  );
   assert.strictEqual(雲.トークンを取った(), 1);
 });
 
@@ -119,14 +135,20 @@ test('入れない：見つからない・名簿にいない・期限切れの�
     団体の文書({
       '/groups/100001/member_lookup/GONEXX': { memberId: 欄.字('m9') },
       '/groups/100001/member_lookup/1234': { memberId: 欄.字('m1') },
-      ['/groups/100001/member_lookup/' + 'a'.repeat(32)]: { memberId: 欄.字('m1'), 招待: 欄.真, expiresAt: 欄.時(今 - 1) },
+      ['/groups/100001/member_lookup/' + 'a'.repeat(32)]: {
+        memberId: 欄.字('m1'),
+        招待: 欄.真,
+        expiresAt: 欄.時(今 - 1),
+      },
       '/group_accounts/200002': { id: 欄.字('200002'), email: 欄.字('b@example.jp') },
       '/groups/200002/member_lookup/K7MP3X': { memberId: 欄.字('m1') },
     })
   );
   const env = { FIREBASE_SA_KEYS: JSON.stringify(await 偽のサービスアカウント()) };
   const 試す = (団体, 鍵) =>
-    部員を確かめる(依頼({ 団体, 鍵 }), env, 匿名, { 送る: 雲.送る, 回数に収まるか: いつも収まる, 今 }).then((r) => r.中身.結果);
+    部員を確かめる(依頼({ 団体, 鍵 }), env, 匿名, { 送る: 雲.送る, 回数に収まるか: いつも収まる, 今 }).then(
+      (r) => r.中身.結果
+    );
   assert.strictEqual(await 試す('100001', 'ZZZZZZ'), '見つからない');
   assert.strictEqual(await 試す('100001', 'GONEXX'), '見つからない', '名簿にいない人の逆引きで入れた');
   assert.strictEqual(await 試す('100001', 'a'.repeat(32)), '期限切れ');
@@ -162,7 +184,12 @@ test('入れない：卒業・退部にした人（11/26 本人）。在籍の�
       回数に収まるか: いつも収まる,
       今: Date.parse('2026-11-26T00:00:00Z'),
     }).then((r) => r.中身);
-  assert.deepStrictEqual(await 試す('SKTGYQ'), { 結果: '在籍していない', 在籍: '卒業', 種類: 'shakaijin', 呼び方: 'club' });
+  assert.deepStrictEqual(await 試す('SKTGYQ'), {
+    結果: '在籍していない',
+    在籍: '卒業',
+    種類: 'shakaijin',
+    呼び方: 'club',
+  });
   assert.strictEqual((await 試す('TAXBUZ')).在籍, '退部');
   assert.strictEqual((await 試す('MAEN2K')).在籍, '卒業', '前の形の卒業生の印で入れた');
   assert.strictEqual(雲.書いた.length, 0, '卒業・退部の人の証を書いた');
@@ -178,11 +205,31 @@ test('入れてよいか：猶予のあいだは確認前の団体も通す。12
   const 済み = { fields: { verified: 欄.真 } };
   assert.strictEqual(入れてよいか({ 鍵: '1234', 帳面: 済み, 逆引き: 逆(), 今: 四桁の終わり - 1 }), '通す');
   assert.strictEqual(入れてよいか({ 鍵: '1234', 帳面: 済み, 逆引き: 逆(), 今: 四桁の終わり }), '4桁は終わり');
-  assert.strictEqual(入れてよいか({ 鍵: 'b'.repeat(32), 帳面: 済み, 逆引き: 逆({ 招待: 欄.真, expiresAt: 欄.時(1e13) }), 今: 1 }), '通す');
-  assert.strictEqual(入れてよいか({ 鍵: 'b'.repeat(32), 帳面: 済み, 逆引き: 逆({ 招待: 欄.真 }), 今: 1 }), '期限切れ', '期限の無い招待');
-  assert.strictEqual(入れてよいか({ 鍵: 'b'.repeat(32), 帳面: 済み, 逆引き: 逆(), 今: 1 }), '見つからない', '招待でない長い鍵');
+  assert.strictEqual(
+    入れてよいか({
+      鍵: 'b'.repeat(32),
+      帳面: 済み,
+      逆引き: 逆({ 招待: 欄.真, expiresAt: 欄.時(1e13) }),
+      今: 1,
+    }),
+    '通す'
+  );
+  assert.strictEqual(
+    入れてよいか({ 鍵: 'b'.repeat(32), 帳面: 済み, 逆引き: 逆({ 招待: 欄.真 }), 今: 1 }),
+    '期限切れ',
+    '期限の無い招待'
+  );
+  assert.strictEqual(
+    入れてよいか({ 鍵: 'b'.repeat(32), 帳面: 済み, 逆引き: 逆(), 今: 1 }),
+    '見つからない',
+    '招待でない長い鍵'
+  );
   // アプリが行を消す代わりに置く「消した」印の行は使えない
-  assert.strictEqual(入れてよいか({ 鍵: 'K7MP3X', 帳面: 済み, 逆引き: 逆({ 消した: 欄.真 }), 今: 1 }), '見つからない', '消した印の行');
+  assert.strictEqual(
+    入れてよいか({ 鍵: 'K7MP3X', 帳面: 済み, 逆引き: 逆({ 消した: 欄.真 }), 今: 1 }),
+    '見つからない',
+    '消した印の行'
+  );
 });
 
 test('守り：鍵が無ければ 404（古い中継と同じ）・匿名でなければ 403・回数を越えたら 429・形が違えば 400', async () => {
@@ -191,20 +238,38 @@ test('守り：鍵が無ければ 404（古い中継と同じ）・匿名でな�
   const 道具 = { 送る: 雲.送る, 回数に収まるか: いつも収まる };
   assert.strictEqual((await 部員を確かめる(依頼({ 団体: '1', 鍵: 'K7MP3X' }), {}, 匿名, 道具)).状態, 404);
   assert.strictEqual(
-    (await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), env, { ...匿名, firebase: { sign_in_provider: 'password' } }, 道具)).状態,
+    (
+      await 部員を確かめる(
+        依頼({ 団体: '100001', 鍵: 'K7MP3X' }),
+        env,
+        { ...匿名, firebase: { sign_in_provider: 'password' } },
+        道具
+      )
+    ).状態,
     403
   );
   assert.strictEqual((await 部員を確かめる(依頼({ 団体: '../x', 鍵: 'K7MP3X' }), env, 匿名, 道具)).状態, 400);
   // 通信元ごとの上限と団体ごとの上限
   const 数えた = [];
   const 通信元だけ越える = async (本人) => (数えた.push(本人.sub), !本人.sub.startsWith('通信元:'));
-  const 越えた = await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), env, 匿名, { ...道具, 回数に収まるか: 通信元だけ越える });
+  const 越えた = await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), env, 匿名, {
+    ...道具,
+    回数に収まるか: 通信元だけ越える,
+  });
   assert.strictEqual(越えた.状態, 429);
   assert.deepStrictEqual(数えた.sort(), ['団体:kyudoscoremanager:100001', '通信元:203.0.113.5']);
   assert.strictEqual(雲.送った.length, 0, '回数を越えたのに雲を読んだ');
   // App Check を強いているときは、印の無い端末を断る
   const 強いる = { ...env, APPCHECK_MODE: 'enforce' };
-  assert.strictEqual((await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), 強いる, 匿名, { ...道具, 印の様子: 'none' })).状態, 401);
+  assert.strictEqual(
+    (
+      await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), 強いる, 匿名, {
+        ...道具,
+        印の様子: 'none',
+      })
+    ).状態,
+    401
+  );
 });
 
 test('Firestore に届かないときは 503（入れたことにしない）。試した結果は数だけ残す', async () => {
@@ -215,7 +280,11 @@ test('Firestore に届かないときは 503（入れたことにしない）。
     FIREBASE_SA_KEYS: JSON.stringify(await 偽のサービスアカウント()),
     KAIZEN_DB: { prepare: (sql) => ({ bind: (...v) => ({ run: async () => 残した.push({ sql, v }) }) }) },
   };
-  const 結果 = await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), env, 匿名, { 送る: 雲.送る, 回数に収まるか: いつも収まる, 今: 7 });
+  const 結果 = await 部員を確かめる(依頼({ 団体: '100001', 鍵: 'K7MP3X' }), env, 匿名, {
+    送る: 雲.送る,
+    回数に収まるか: いつも収まる,
+    今: 7,
+  });
   assert.strictEqual(結果.状態, 503);
   await new Promise((r) => setTimeout(r, 0));
   assert.strictEqual(残した.length, 1);
@@ -226,8 +295,15 @@ test('Firestore に届かないときは 503（入れたことにしない）。
 test('サービスアカウントを選ぶ：企画ごとの表・並び・1 つ。合わない企画は選ばない', async () => {
   const 本番 = await 偽のサービスアカウント('kyudoscoremanager');
   const 検証 = await 偽のサービスアカウント('kyudoscoremanager-stg');
-  assert.strictEqual(サービスアカウントを選ぶ(JSON.stringify({ 'kyudoscoremanager-stg': 検証 }), 'kyudoscoremanager-stg').client_email, 検証.client_email);
-  assert.strictEqual(サービスアカウントを選ぶ(JSON.stringify([本番, 検証]), 'kyudoscoremanager').client_email, 本番.client_email);
+  assert.strictEqual(
+    サービスアカウントを選ぶ(JSON.stringify({ 'kyudoscoremanager-stg': 検証 }), 'kyudoscoremanager-stg')
+      .client_email,
+    検証.client_email
+  );
+  assert.strictEqual(
+    サービスアカウントを選ぶ(JSON.stringify([本番, 検証]), 'kyudoscoremanager').client_email,
+    本番.client_email
+  );
   assert.strictEqual(サービスアカウントを選ぶ(JSON.stringify(本番), 'kyudoscoremanager-stg'), null);
   assert.strictEqual(サービスアカウントを選ぶ('壊れた', 'kyudoscoremanager'), null);
   assert.strictEqual(サービスアカウントを選ぶ(undefined, 'kyudoscoremanager'), null);

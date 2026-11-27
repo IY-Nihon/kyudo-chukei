@@ -13,7 +13,10 @@
  * @param {{送る?: Function, 最短の取り直し?: number}} [設定]
  * @returns {(kid: string, 今?: number) => Promise<CryptoKey>}
  */
-export function 鍵の置き場を作る(場所, { 送る = (...引数) => fetch(...引数), 最短の取り直し = 60 * 1000 } = {}) {
+export function 鍵の置き場を作る(
+  場所,
+  { 送る = (...引数) => fetch(...引数), 最短の取り直し = 60 * 1000 } = {}
+) {
   let 控え = { 鍵たち: null, 期限: 0 };
   let 最後に取った = 0;
   const 取り込んだ = new Map();
@@ -21,12 +24,22 @@ export function 鍵の置き場を作る(場所, { 送る = (...引数) => fetch
     最後に取った = 今;
     // 知らない鍵の番号で取り直すときは、Cloudflare の控え（1 時間）を通さない。通すと、Google が鍵を替えた直後に
     // 古い一覧が返り、最大 1 時間ログインの証を断った（2026-11-07 のレビュー）
-    const r = await 送る(場所, 控えを使わない ? { cf: { cacheTtl: 0, cacheEverything: false } } : { cf: { cacheTtl: 3600, cacheEverything: true } });
+    const r = await 送る(
+      場所,
+      控えを使わない
+        ? { cf: { cacheTtl: 0, cacheEverything: false } }
+        : { cf: { cacheTtl: 3600, cacheEverything: true } }
+    );
     if (!r || !r.ok) throw new Error('公開鍵を取れない');
     const j = await r.json();
-    const m = String((r.headers && r.headers.get && r.headers.get('Cache-Control')) || '').match(/max-age=(\d+)/);
+    const m = String((r.headers && r.headers.get && r.headers.get('Cache-Control')) || '').match(
+      /max-age=(\d+)/
+    );
     const 秒 = m ? Number(m[1]) : 3600;
-    控え = { 鍵たち: Array.isArray(j && j.keys) ? j.keys : [], 期限: 今 + Math.max(60, Math.min(秒, 86400)) * 1000 };
+    控え = {
+      鍵たち: Array.isArray(j && j.keys) ? j.keys : [],
+      期限: 今 + Math.max(60, Math.min(秒, 86400)) * 1000,
+    };
     取り込んだ.clear();
   }
   // 取り直しに失敗したら投げる。ただし前に取れた鍵があれば、それで確かめ続ける（Google は鍵を替える前から
@@ -49,7 +62,13 @@ export function 鍵の置き場を作る(場所, { 送る = (...引数) => fetch
     }
     if (!jwk) throw new Error('公開鍵が見つからない');
     if (!取り込んだ.has(kid)) {
-      const 約束 = crypto.subtle.importKey('jwk', jwk, { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' }, false, ['verify']);
+      const 約束 = crypto.subtle.importKey(
+        'jwk',
+        jwk,
+        { name: 'RSASSA-PKCS1-v1_5', hash: 'SHA-256' },
+        false,
+        ['verify']
+      );
       約束.catch(() => 取り込んだ.delete(kid));
       取り込んだ.set(kid, 約束);
     }
@@ -123,6 +142,9 @@ export async function 印を確かめる(印, 企画, { 鍵を選ぶ = 印の鍵
  */
 export function 印を強いるか(env, 企画) {
   if (String((env && env.APPCHECK_MODE) || '') !== 'enforce') return false;
-  const 外す = String((env && env.APPCHECK_SKIP_PROJECTS) || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const 外す = String((env && env.APPCHECK_SKIP_PROJECTS) || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   return !外す.includes(String(企画));
 }

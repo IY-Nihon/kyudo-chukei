@@ -43,7 +43,8 @@ import { 一日の枠に収まるか, 古い一日の数を消す } from './ichi
 import { 期限を延ばす } from './enchou.mjs';
 import { 鍵の置き場を作る, 署名を確かめる, 印を確かめる, 印を強いるか } from './kagi.mjs';
 
-const 公開鍵の場所 = 'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
+const 公開鍵の場所 =
+  'https://www.googleapis.com/service_accounts/v1/jwk/securetoken@system.gserviceaccount.com';
 const 上流 = 'https://generativelanguage.googleapis.com';
 
 /** ログインの証の公開鍵（控えに無い番号での取り直しは 1 分に 1 回まで。src/kagi.mjs） */
@@ -127,9 +128,16 @@ export default {
     if (!証) return 答える({ error: 'ログインの証がありません' }, 401, 許す出どころ);
     let 本人;
     try {
-      本人 = await 証を確かめる(証, env.FIREBASE_PROJECT_IDS.split(',').map((s) => s.trim()));
+      本人 = await 証を確かめる(
+        証,
+        env.FIREBASE_PROJECT_IDS.split(',').map((s) => s.trim())
+      );
     } catch (e) {
-      return 答える({ error: 'ログインの証が正しくありません', 訳: String((e && e.message) || e) }, 401, 許す出どころ);
+      return 答える(
+        { error: 'ログインの証が正しくありません', 訳: String((e && e.message) || e) },
+        401,
+        許す出どころ
+      );
     }
 
     // App Check の印（アプリが X-Firebase-AppCheck に付ける）。APPCHECK_MODE が enforce なら、無い・正しくないものを断る。
@@ -137,7 +145,14 @@ export default {
     const 印の約束 = 印を確かめる(request.headers.get('X-Firebase-AppCheck'), 本人.aud).catch(() => 'bad');
     const 印で止めるか = async () => 印を強いるか(env, 本人.aud) && (await 印の約束) !== 'ok';
     const 印で断る = () =>
-      答える({ error: 'この端末の確かめに失敗しました。ブラウザを新しくして読み込み直してください', 印: 'appcheck' }, 401, 許す出どころ);
+      答える(
+        {
+          error: 'この端末の確かめに失敗しました。ブラウザを新しくして読み込み直してください',
+          印: 'appcheck',
+        },
+        401,
+        許す出どころ
+      );
 
     // 部員のログインの確かめ（src/kojin.mjs）。所属の証を書く前なので、通してよい人かは見ない
     if (url.pathname === '/kojin') {
@@ -196,15 +211,24 @@ export default {
     // AI チャットが「呼びすぎ」で断られやすくなる（2026-09-26）
     if (url.pathname === '/hozon' || url.pathname.startsWith('/hozon/')) {
       const [{ 通す }, 収まる] = await Promise.all([通すの約束, 回数に収まるか(本人, env.RATE_HOZON)]);
-      if (!通す) return 答える({ error: 'この機能は、団体または個人でログインした人だけが使えます' }, 403, 許す出どころ);
-      if (!収まる) return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
+      if (!通す)
+        return 答える(
+          { error: 'この機能は、団体または個人でログインした人だけが使えます' },
+          403,
+          許す出どころ
+        );
+      if (!収まる)
+        return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
       if (await 印で止めるか()) return 印で断る();
       const 結果 = await 保存を受ける(request, url, env, 本人);
       return 答える(結果.中身, 結果.状態, 許す出どころ);
     }
 
     // 3. 道と模型（体を読む前に決まる）
-    const 道 = 上流の道にする(url, env.ALLOWED_MODELS.split(',').map((s) => s.trim()));
+    const 道 = 上流の道にする(
+      url,
+      env.ALLOWED_MODELS.split(',').map((s) => s.trim())
+    );
     if (!道) {
       await 通すの約束.catch(() => {});
       return 答える({ error: 'この道は中継しません' }, 404, 許す出どころ);
@@ -214,20 +238,30 @@ export default {
     // 4. 前ぶれを同時に進める（2026-11-04）。前は 通してよいか（米国の Firestore を 2 回続けて読む）→ 回数 → 体を受け取る →
     // 直近に答えた模型（D1）を 1 つずつ待っていた。写真では体の受け取りの間にほかが済む
     const 体の約束 =
-      request.method === 'GET' || request.method === 'HEAD' ? Promise.resolve(undefined) : request.arrayBuffer();
+      request.method === 'GET' || request.method === 'HEAD'
+        ? Promise.resolve(undefined)
+        : request.arrayBuffer();
     const 模型の種 = 流し読みか ? '流し読み' : '生成';
     const 模型の約束 = Promise.all([直近の答え(env, 模型の種), 最近打ち切った模型たち(env, 模型の種)]);
     // 回数。人ごとは前ぶれと同時に数える（数えられるのはその人の枠だけ）。全員合わせての回数は、通してよい人と
     // 分かってから数える（2026-11-07 のレビュー。同時に数えると、断られる匿名の口座を作り替えて呼び続けるだけで
     // 全員の枠が埋まり、みなが「混み合っています」になった）
-    const [{ 通す, 団体: 通した団体 }, 人で] = await Promise.all([通すの約束, 回数に収まるか(本人, env.RATE)]);
+    const [{ 通す, 団体: 通した団体 }, 人で] = await Promise.all([
+      通すの約束,
+      回数に収まるか(本人, env.RATE),
+    ]);
     if (!通す) {
       体の約束.catch(() => {});
       return 答える({ error: 'この機能は、団体または個人でログインした人だけが使えます' }, 403, 許す出どころ);
     }
-    if (!人で) return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
+    if (!人で)
+      return 答える({ error: '呼びすぎです。少し待ってからもう一度お試しください' }, 429, 許す出どころ);
     if (!(await 回数に収まるか({ sub: '全員' }, env.RATE_ALL)))
-      return 答える({ error: 'ただいまAIが混み合っています。しばらく待ってからもう一度お試しください' }, 429, 許す出どころ);
+      return 答える(
+        { error: 'ただいまAIが混み合っています。しばらく待ってからもう一度お試しください' },
+        429,
+        許す出どころ
+      );
     if (await 印で止めるか()) return 印で断る();
     // 1 日の回数の上限（src/ichinichi.mjs）。返事は Gemini の 1 日の枠切れと同じ形にする。アプリは
     // 「PerDayPerProject」で 1 日の上限と見分け、送り直さずに「夕方に戻ります」と知らせる
@@ -283,7 +317,11 @@ export default {
     const チャットか = 流し読みか && 体の字 !== null && 体の字.indexOf('"systemInstruction":') >= 0;
     // 試験で「その模型そのものの答え」を見たいときは、X-Kyudo-No-Chain: 1 を付けると切り替えない
     const 切り替えない = !!request.headers.get('X-Kyudo-No-Chain');
-    let 候補 = 候補の模型たち(道, 切り替えない ? '' : チャットか ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN, チャットか);
+    let 候補 = 候補の模型たち(
+      道,
+      切り替えない ? '' : チャットか ? env.MODEL_CHAIN_STREAM : env.MODEL_CHAIN,
+      チャットか
+    );
     // 直近に答えた模型から試す（答えない模型を毎回待たない。答えた模型を見る長さ の説明）
     // 直近に答えた模型から試し、この 6 時間に打ち切った模型は後ろへ（並べる。2026-11-20 本人「並びを自動で直す」）
     if (候補.length > 1) {
@@ -304,7 +342,8 @@ export default {
       // 打ち切った模型を D1 に書く（6 時間後ろへ回す。どの実体からも読む）。待たない
       打ち切りを書く: (模型) => 待たずに(打ち切った模型を書く(env, 模型の種, 模型).catch(() => {})),
     });
-    if (送り.つながらない) return 答える({ error: 'Gemini につながりませんでした', 訳: 送り.訳 }, 502, 許す出どころ);
+    if (送り.つながらない)
+      return 答える({ error: 'Gemini につながりませんでした', 訳: 送り.訳 }, 502, 許す出どころ);
     const { 返事, 使った, 使った模型, 混んだ } = 送り;
     // そのまま返す（流し読み（SSE）もこのままで通る）
     const 出す頭 = new Headers(返事.headers);
@@ -315,7 +354,9 @@ export default {
     // 答えの最初の塊が来るまでの時間（流し読みは先頭を見てから返すので、文字が出始めるまでの時間）
     const 先頭まで = Date.now() - 送り始め;
     const 印の様子 = await 印の約束;
-    console.log(`鍵 ${使った + 1}/${鍵たち.length} ${使った模型 || '-'} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''} 前ぶれ${前ぶれ}ms ${先頭まで}ms 送った${送り.送った回数}${送り.遅かった ? ` 打ち切り${送り.遅かった}` : ''} 印${印の様子}`);
+    console.log(
+      `鍵 ${使った + 1}/${鍵たち.length} ${使った模型 || '-'} ${返事.status}${混んだ ? ` 混み${混んだ}` : ''} 前ぶれ${前ぶれ}ms ${先頭まで}ms 送った${送り.送った回数}${送り.遅かった ? ` 打ち切り${送り.遅かった}` : ''} 印${印の様子}`
+    );
     // 答えた模型を実体の中でも控える（次の呼び出しで D1 を読まずに済む）
     if (返事.status === 200 && 使った模型) 答えた模型を控える(流し読みか ? '流し読み' : '生成', 使った模型);
     // 遅いときにどこで詰まったか後から見られるよう、1 回ごとに残す（待たない。書けなくても答えは返す）
@@ -339,7 +380,7 @@ export default {
   },
 
   // 毎日の定時の処理（wrangler.toml の [triggers]）。1 年を過ぎた改善のための保存を消す
-  async scheduled(event, env, ctx) {
+  scheduled(event, env, ctx) {
     // 1 時間ごとの見回り（見回る）。毎日の片付けとは別の定時
     if (event && event.cron === 見回りの時刻) {
       ctx.waitUntil(
@@ -444,7 +485,10 @@ export async function 送り直す訳(返事) {
   if (返事.status === 503) return '混み';
   if (返事.status === 400) {
     // 体は読むと無くなるので、写しから読む
-    const 文 = await 返事.clone().text().catch(() => '');
+    const 文 = await 返事
+      .clone()
+      .text()
+      .catch(() => '');
     return /API key|API_KEY_INVALID/i.test(文) ? '鍵' : null;
   }
   return null;
@@ -469,7 +513,10 @@ export async function 回数に収まるか(本人, 数え) {
 /** 許された出どころなら、その文字列を返す（無ければ null） */
 function 出どころを選ぶ(出どころ, 一覧) {
   if (!出どころ) return null;
-  const 許す = (一覧 || '').split(',').map((s) => s.trim()).filter(Boolean);
+  const 許す = (一覧 || '')
+    .split(',')
+    .map((s) => s.trim())
+    .filter(Boolean);
   return 許す.includes(出どころ) ? 出どころ : null;
 }
 
@@ -626,8 +673,7 @@ export async function 上流へ送る(注文) {
       else if (!最後の模型 && (訳 === '鍵' || 返事.status === 404)) {
         次の模型へ = true;
         if (訳 === '鍵' && 候補[順].模型) 枠切れ.set(候補[順].模型, Date.now() + 枠切れの控え);
-      }
-      else break;
+      } else break;
       // 使わない返事の体は捨てる（つなぎっぱなしにしない）
       if (返事.body) await 返事.body.cancel().catch(() => {});
       番 = (番 + 1) % 鍵たち.length;
@@ -677,11 +723,14 @@ export async function 見回る(env, 道具 = {}) {
       }, 道具.上限 ?? 見回りの上限)
     : null;
   const 始め = 今();
-  let 状態 = 0;
+  let 状態;
   let 空 = false;
   try {
     const 頭 = new Headers();
-    頭.set('x-goog-api-key', 鍵たち[(道具.鍵の番 ?? Math.floor(Math.random() * 鍵たち.length)) % 鍵たち.length]);
+    頭.set(
+      'x-goog-api-key',
+      鍵たち[(道具.鍵の番 ?? Math.floor(Math.random() * 鍵たち.length)) % 鍵たち.length]
+    );
     頭.set('Content-Type', 'application/json');
     const 返り = await 送る(上流 + 相手.道 + '?alt=sse', {
       method: 'POST',
@@ -757,7 +806,8 @@ export const チャットの考える量 = 1024;
  * @param {string} 道
  */
 export function チャットの考えを絞る(体, 模型, 道) {
-  if (!体 || !体.byteLength || !考えを絞る模型.includes(模型) || !/:streamGenerateContent$/.test(道)) return 体;
+  if (!体 || !体.byteLength || !考えを絞る模型.includes(模型) || !/:streamGenerateContent$/.test(道))
+    return 体;
   const 文 = new TextDecoder().decode(体);
   if (文.indexOf('"systemInstruction":') < 0 || 文.indexOf('"thinkingConfig":') >= 0) return 体;
   return 考える量を差す(体, 文, チャットの考える量);
@@ -781,7 +831,12 @@ export function 考えない体(体, 道) {
   if (文.indexOf('"thinkingConfig":') >= 0) return 体;
   if (/:streamGenerateContent$/.test(道)) {
     // 流し読みは AI チャットも使う。写真の読み取り（JSON 出力で、道具・system 指示なし）だけ考えない
-    if (文.indexOf('"tools":') >= 0 || 文.indexOf('"systemInstruction":') >= 0 || 文.indexOf('"responseMimeType":"application/json"') < 0) return 体;
+    if (
+      文.indexOf('"tools":') >= 0 ||
+      文.indexOf('"systemInstruction":') >= 0 ||
+      文.indexOf('"responseMimeType":"application/json"') < 0
+    )
+      return 体;
   }
   if (文.charAt(文.length - 1) !== '}' && 文.trimEnd().charAt(文.trimEnd().length - 1) !== '}') return 体;
   return 考える量を差す(体, 文, 0);
@@ -825,7 +880,10 @@ export async function 流れの先頭を見る(返事, 道) {
   }
   if (先頭.done || !先頭.value) {
     // 中身の無い 200（最初の塊を待たずに流れが終わった）。最後の模型でなければ、上流へ送る が次の模型へ移る
-    const 空 = new Response(new Uint8Array(0), { status: 返事.status, headers: 見出しを整える(返事.headers) });
+    const 空 = new Response(new Uint8Array(0), {
+      status: 返事.status,
+      headers: 見出しを整える(返事.headers),
+    });
     空.空の流れ = true;
     return 空;
   }
@@ -887,9 +945,14 @@ export function 見出しを整える(元) {
  * @returns {{模型:string, 道:string}[]}
  */
 export function 候補の模型たち(道, 連鎖, 頭から = false) {
-  const m = String(道).match(/^(\/(?:v1beta|v1)\/models\/)([^/:]+)(:(?:generateContent|streamGenerateContent))$/);
+  const m = String(道).match(
+    /^(\/(?:v1beta|v1)\/models\/)([^/:]+)(:(?:generateContent|streamGenerateContent))$/
+  );
   if (!m) return [{ 模型: '', 道 }];
-  const 並び = String(連鎖 || '').split(',').map((x) => x.trim()).filter(Boolean);
+  const 並び = String(連鎖 || '')
+    .split(',')
+    .map((x) => x.trim())
+    .filter(Boolean);
   if (!並び.includes(m[2])) return [{ 模型: m[2], 道 }];
   // 頭から：頼んだ模型に関わらず、連鎖の先頭（新しい模型）から試す。AI チャットはこれ（2026-10-13 に運用者が 3.8 から順にと決めた）
   if (頭から) return 並び.map((模型) => ({ 模型, 道: m[1] + 模型 + m[3] }));
@@ -967,7 +1030,8 @@ export async function 最近打ち切った模型たち(env, 種, 今 = Date.now
       const 結果 = await env.KAIZEN_DB.prepare('SELECT model, at FROM mokei_osoi WHERE kind = ?1 AND at > ?2')
         .bind(種, 今 - 遅いを覚える長さ)
         .all();
-      for (const 行 of (結果 && 結果.results) || []) if (行 && 行.model) 表.set(String(行.model), Number(行.at) || 0);
+      for (const 行 of (結果 && 結果.results) || [])
+        if (行 && 行.model) 表.set(String(行.model), Number(行.at) || 0);
     } catch {
       // 表が無い（migrations の前）・読めない：後ろへ回さずに送る
     }
@@ -1039,13 +1103,23 @@ export function 通す控えを忘れる() {
 /** 控えの印（人を特定しないよう、企画・人・団体をまとめてハッシュにする） */
 async function 控えの印(鍵) {
   const 値 = await crypto.subtle.digest('SHA-256', new TextEncoder().encode('toosu:' + 鍵));
-  return [...new Uint8Array(値)].slice(0, 16).map((x) => x.toString(16).padStart(2, '0')).join('');
+  return [...new Uint8Array(値)]
+    .slice(0, 16)
+    .map((x) => x.toString(16).padStart(2, '0'))
+    .join('');
 }
 async function 雲の控えを読む(env, 印) {
   try {
-    const 行 = await env.KAIZEN_DB.prepare('SELECT pass, until, checked, grp FROM toosu WHERE key = ?1').bind(印).first();
+    const 行 = await env.KAIZEN_DB.prepare('SELECT pass, until, checked, grp FROM toosu WHERE key = ?1')
+      .bind(印)
+      .first();
     return 行
-      ? { 通す: 行.pass === 1, 期限: Number(行.until) || 0, 確かめた: Number(行.checked) || 0, 団体: String(行.grp || '') }
+      ? {
+          通す: 行.pass === 1,
+          期限: Number(行.until) || 0,
+          確かめた: Number(行.checked) || 0,
+          団体: String(行.grp || ''),
+        }
       : null;
   } catch {
     return null;
@@ -1153,7 +1227,7 @@ async function 団体を一度で読めるか(団体, 読む) {
 
 async function 団体を読めるか(本人, 読む) {
   const 届かない = (r) => r.status >= 500 || r.status === 429;
-  let 団体 = null;
+  let 団体;
   if (本人.firebase && 本人.firebase.sign_in_provider === 'anonymous') {
     const r = await 読む(`/member_claims/${encodeURIComponent(本人.sub)}`);
     if (届かない(r)) throw new Error('届かない');
@@ -1165,7 +1239,9 @@ async function 団体を読めるか(本人, 読む) {
     const r = await 読む(':runQuery', {
       structuredQuery: {
         from: [{ collectionId: 'group_accounts' }],
-        where: { fieldFilter: { field: { fieldPath: 'email' }, op: 'EQUAL', value: { stringValue: 本人.email } } },
+        where: {
+          fieldFilter: { field: { fieldPath: 'email' }, op: 'EQUAL', value: { stringValue: 本人.email } },
+        },
         limit: 1,
       },
     });
@@ -1205,20 +1281,39 @@ export async function 呼んだ記録を残す(env, 記録, 今 = Date.now()) {
   await env.KAIZEN_DB.prepare(
     'INSERT INTO chukei_calls (at, project, kind, requested, used, status, first_ms, sends, busy, slow, appcheck, pre_ms) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)'
   )
-    .bind(今, String(記録.企画 || ''), 種, 頼んだ模型, 記録.使った模型 || '', 記録.状態, 記録.先頭まで, 記録.送った回数 || 0, 記録.混んだ || 0, 記録.遅かった || 0, String(記録.印 || ''), Number(記録.前ぶれ) || 0)
+    .bind(
+      今,
+      String(記録.企画 || ''),
+      種,
+      頼んだ模型,
+      記録.使った模型 || '',
+      記録.状態,
+      記録.先頭まで,
+      記録.送った回数 || 0,
+      記録.混んだ || 0,
+      記録.遅かった || 0,
+      String(記録.印 || ''),
+      Number(記録.前ぶれ) || 0
+    )
     .run();
 }
 
 export async function 古い呼んだ記録を消す(env, 今 = Date.now()) {
   if (!env.KAIZEN_DB) return 0;
-  const 結果 = await env.KAIZEN_DB.prepare('DELETE FROM chukei_calls WHERE at < ?1').bind(今 - 呼んだ記録の日数 * 86400000).run();
+  const 結果 = await env.KAIZEN_DB.prepare('DELETE FROM chukei_calls WHERE at < ?1')
+    .bind(今 - 呼んだ記録の日数 * 86400000)
+    .run();
   return (結果 && 結果.meta && 結果.meta.changes) || 0;
 }
 
 /** 通してよいかの控え（toosu）の期限の過ぎたものと、部員のログインを試した数（kojin_tries）の古いものを消す */
 export async function 古い控えを消す(env, 今 = Date.now()) {
   if (!env.KAIZEN_DB) return 0;
-  const 甲 = await env.KAIZEN_DB.prepare('DELETE FROM toosu WHERE checked < ?1').bind(今 - 届かないときの延長 - 86400000).run();
-  const 乙 = await env.KAIZEN_DB.prepare('DELETE FROM kojin_tries WHERE at < ?1').bind(今 - 呼んだ記録の日数 * 86400000).run();
+  const 甲 = await env.KAIZEN_DB.prepare('DELETE FROM toosu WHERE checked < ?1')
+    .bind(今 - 届かないときの延長 - 86400000)
+    .run();
+  const 乙 = await env.KAIZEN_DB.prepare('DELETE FROM kojin_tries WHERE at < ?1')
+    .bind(今 - 呼んだ記録の日数 * 86400000)
+    .run();
   return ((甲 && 甲.meta && 甲.meta.changes) || 0) + ((乙 && 乙.meta && 乙.meta.changes) || 0);
 }
