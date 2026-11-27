@@ -332,6 +332,16 @@ export default {
       候補 = 並べる(候補, 答え, 遅い表);
     } else 模型の約束.catch(() => {});
     const 前ぶれ = 送り始め - 受けた時刻;
+    // 上流へ送る前に「受けた」行を書く（状態 0）。答えが来たらその行に結果を書き足す。待っている途中で使う人が
+    // 閉じると実体ごと止まり、前は答えのあとに書いていたので、いちばん遅かった呼び出しほど記録に残らなかった
+    //（2026-11-28 本人）。waitUntil に預けるので、閉じられても書き終わる
+    const 受けた行 = env.KAIZEN_DB
+      ? 受けた記録を書く(env, { 企画: 本人.aud, 道, 前ぶれ }).catch((e) => {
+          console.warn('受けた記録を書けませんでした', e);
+          return null;
+        })
+      : Promise.resolve(null);
+    待たずに(受けた行);
     const 送り = await 上流へ送る({
       候補,
       頼んだ模型: (String(道).match(/models\/([^/:]+):/) || [])[1],
@@ -366,19 +376,23 @@ export default {
     if (返事.status === 200 && 使った模型) 答えた模型を控える(流し読みか ? '流し読み' : '生成', 使った模型);
     // 遅いときにどこで詰まったか後から見られるよう、1 回ごとに残す（待たない。書けなくても答えは返す）
     if (env.KAIZEN_DB) {
+      const 記録 = {
+        企画: 本人.aud,
+        道,
+        使った模型,
+        状態: 返事.status,
+        先頭まで,
+        送った回数: 送り.送った回数,
+        混んだ,
+        遅かった: 送り.遅かった || 0,
+        印: 印の様子,
+        前ぶれ,
+      };
+      // 受けた行があれば書き足す。書けていなければ前のとおり 1 行足す
       待たずに(
-        呼んだ記録を残す(env, {
-          企画: 本人.aud,
-          道,
-          使った模型,
-          状態: 返事.status,
-          先頭まで,
-          送った回数: 送り.送った回数,
-          混んだ,
-          遅かった: 送り.遅かった || 0,
-          印: 印の様子,
-          前ぶれ,
-        }).catch((e) => console.warn('呼んだ記録を残せませんでした', e))
+        受けた行
+          .then((行) => (行 ? 呼んだ記録を書き足す(env, 行, 記録) : 呼んだ記録を残す(env, 記録)))
+          .catch((e) => console.warn('呼んだ記録を残せませんでした', e))
       );
     }
     return new Response(返事.body, { status: 返事.status, headers: 出す頭 });
@@ -1369,6 +1383,39 @@ async function 証を確かめる(証, 企画たち) {
 
 /** 呼んだ記録（chukei_calls）を残す日数。遅さを調べるためだけなので短く */
 export const 呼んだ記録の日数 = 90;
+
+/**
+ * 受けた時点の行（状態 0・答えはまだ）を書き、その行の番号（rowid）を返す。答えが来たら 呼んだ記録を書き足す で埋める。
+ * 状態 0 のまま残った行は、答えが来る前に使う人が閉じた（または実体が止まった）呼び出し（2026-11-28 本人）
+ */
+export async function 受けた記録を書く(env, 記録, 今 = Date.now()) {
+  const 種 = /:streamGenerateContent$/.test(記録.道) ? '流し読み' : '生成';
+  const 頼んだ模型 = (String(記録.道).match(/models\/([^/:]+):/) || [])[1] || '';
+  const 結果 = await env.KAIZEN_DB.prepare(
+    "INSERT INTO chukei_calls (at, project, kind, requested, used, status, first_ms, sends, busy, slow, appcheck, pre_ms) VALUES (?1, ?2, ?3, ?4, '', 0, NULL, 0, 0, 0, '', ?5) RETURNING rowid"
+  )
+    .bind(今, String(記録.企画 || ''), 種, 頼んだ模型, Number(記録.前ぶれ) || 0)
+    .first();
+  return 結果 && 結果.rowid != null ? 結果.rowid : null;
+}
+
+/** 受けた行に、答えの結果を書き足す */
+export async function 呼んだ記録を書き足す(env, 行, 記録) {
+  await env.KAIZEN_DB.prepare(
+    'UPDATE chukei_calls SET used = ?2, status = ?3, first_ms = ?4, sends = ?5, busy = ?6, slow = ?7, appcheck = ?8 WHERE rowid = ?1'
+  )
+    .bind(
+      行,
+      記録.使った模型 || '',
+      記録.状態,
+      記録.先頭まで,
+      記録.送った回数 || 0,
+      記録.混んだ || 0,
+      記録.遅かった || 0,
+      String(記録.印 || '')
+    )
+    .run();
+}
 
 /**
  * Gemini を 1 回呼んだ記録を残す。人を特定するもの（uid・中身）は置かない。
