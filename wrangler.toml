@@ -13,10 +13,10 @@ compatibility_date = "2026-09-01"
 workers_dev = true
 
 [vars]
-# 証を受け付ける Firebase の企画（本番と検証環境）
-FIREBASE_PROJECT_IDS = "kyudoscoremanager,kyudoscoremanager-stg"
-# 呼んでよい出どころ（CORS）。検証は手元の配り口も許す
-ALLOWED_ORIGINS = "https://kyudoscoremanager.web.app,https://kyudoscoremanager.firebaseapp.com,https://kyudoscoremanager-stg.web.app,https://kyudoscoremanager-stg.firebaseapp.com,http://localhost:8090,http://localhost:8091,http://127.0.0.1:8090,http://127.0.0.1:8091,http://localhost:8081"
+# 証を受け付ける Firebase の企画。検証環境は検証用の中継（[env.stg]）が受ける（2026-11-28 の配信で外した）
+FIREBASE_PROJECT_IDS = "kyudoscoremanager"
+# 呼んでよい出どころ（CORS）。本番の配り口だけ（検証・手元は検証用の中継。2026-11-28 の配信で外した）
+ALLOWED_ORIGINS = "https://kyudoscoremanager.web.app,https://kyudoscoremanager.firebaseapp.com"
 # 呼んでよい模型
 # 2026-11-20：gemini-4-hydrogen を足した（AI チャットの連鎖の最後の頼み。無料枠で答える。Neon は無料枠 0 なので入れない）
 ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash,gemini-4-hydrogen"
@@ -39,8 +39,8 @@ MODEL_CHAIN_STREAM = "gemini-4-hydrogen,gemini-3.6-flash,gemini-3.5-flash,gemini
 # 2026-11-13 enforce にした：11/8 から数えて、ふつうの利用 15 回は全部 ok、印なしは 11/12 夜の攻撃の試しの 6 回だけだった（本人「やって」）
 # 戻すときは "log" にして配る
 APPCHECK_MODE = "enforce"
-# 強いない企画（, 区切り）。検証環境の束には App Check の鍵を入れていないので外す
-APPCHECK_SKIP_PROJECTS = "kyudoscoremanager-stg"
+# 強いない企画（, 区切り）。本番の中継は検証環境の証を受けないので空（2026-11-28。検証用の中継は [env.stg] で外している）
+APPCHECK_SKIP_PROJECTS = ""
 # 1 日の回数の上限（src/ichinichi.mjs。2026-11-13）。Gemini への呼び出しを、人ごと・団体ごとに数える。0 は数えない。
 # 日の境目は Gemini の枠と同じ米国太平洋時間の 0 時（日本の 16〜17 時）。
 # 目安：AI チャットは 1 問で 2〜4 回、写真の読み取りは 1 枚で数回。10/25〜11/12 の本番は全団体合わせて 1 日 数十回
