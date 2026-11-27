@@ -27,9 +27,11 @@ ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-
 # MODEL_CHAIN_STREAM … AI チャット。頼んだ模型に関わらず先頭から試す（2026-10-13 は 3.8 から。3.8 は考える量 1024 で平均 5.5 秒だった）
 # 2026-11-20 本人「並びを自動で直す」：土台を 3.6→3.5→3.8→3.7→4-hydrogen に。10/25〜11/20 の流し読みで答えた 322 回はみな 3.6 か 3.5 で、
 #   3.8・3.7 は 1 回も答えず 15 秒ずつ待っていた。Hydrogen は 3.6 の約 4 倍遅いが答える（Gemini 3 がみな混む日の最後の頼み）
+# 2026-11-28 本人「hydrogen を先頭に」：AI チャットは 4-hydrogen→3.6→3.5→3.8→3.7。11/26〜28 の本番は 3.6 が深夜も含めて答えないか 1〜2 分かかり、
+#   直に測ると hydrogen は 4.4 秒で正しく答えた（3.8・3.7 は 503）
 # どちらも、直近 7 日に答えた模型を先頭に回し、この 6 時間に打ち切った模型は後ろへ回す（src/index.mjs の 並べる。前は 30 分だけ覚えていた）
 MODEL_CHAIN = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash"
-MODEL_CHAIN_STREAM = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash,gemini-4-hydrogen"
+MODEL_CHAIN_STREAM = "gemini-4-hydrogen,gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash"
 # App Check の印（X-Firebase-AppCheck）の扱い。log … 確かめて数えるだけ（呼んだ記録の appcheck）。enforce … 無い・正しくないものを断る。
 # 中継の記録で印の無い呼び出しが減ってから enforce にする（README の「App Check」）
 # 2026-11-13 enforce にした：11/8 から数えて、ふつうの利用 15 回は全部 ok、印なしは 11/12 夜の攻撃の試しの 6 回だけだった（本人「やって」）
@@ -124,7 +126,7 @@ FIREBASE_PROJECT_IDS = "kyudoscoremanager-stg"
 ALLOWED_ORIGINS = "https://kyudoscoremanager-stg.web.app,https://kyudoscoremanager-stg.firebaseapp.com,http://localhost:8090,http://localhost:8091,http://127.0.0.1:8090,http://127.0.0.1:8091,http://localhost:8081"
 ALLOWED_MODELS = "gemini-3.8-flash,gemini-3.7-flash,gemini-3.6-flash,gemini-3.5-flash,gemini-2.5-flash,gemini-2.5-flash-lite,gemini-1.5-flash,gemini-4-hydrogen"
 MODEL_CHAIN = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash"
-MODEL_CHAIN_STREAM = "gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash,gemini-4-hydrogen"
+MODEL_CHAIN_STREAM = "gemini-4-hydrogen,gemini-3.6-flash,gemini-3.5-flash,gemini-3.8-flash,gemini-3.7-flash"
 APPCHECK_MODE = "enforce"
 # 検証環境の束には App Check の鍵を入れていない
 APPCHECK_SKIP_PROJECTS = "kyudoscoremanager-stg"
